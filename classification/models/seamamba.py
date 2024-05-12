@@ -895,7 +895,8 @@ class VSSM(nn.Module):
             if self.ver in ['v0']:
                 dim = int(dims[0] * 2 ** i_layer)
                 downsample = PatchMerging2D if (i_layer < self.num_layers - 1) else None
-            elif self.ver in ['v1', 'v2', 'v3', 'v4']:
+            # elif self.ver in ['v1', 'v2', 'v3', 'v4']:
+            else:
                 dim = dims[i_layer]
                 downsample = None
 
@@ -920,7 +921,8 @@ class VSSM(nn.Module):
             if self.ver in ['v0']:
                 dim = int(dims[0]*2**(self.num_layers-1-i_layer))
                 upsample = PatchExpand if (i_layer < self.num_layers - 1) else None
-            elif self.ver in ['v1', 'v2', 'v3', 'v4']:
+            # elif self.ver in ['v1', 'v2', 'v3', 'v4']:
+            else:
                 dim = dims[self.num_layers-1-i_layer]
                 upsample = None
 
