@@ -37,17 +37,17 @@ def flops_selective_scan_fn(B=1, L=256, D=768, N=16, with_D=True, with_Z=False, 
     D: r(D)
     z: r(B D L)
     delta_bias: r(D), fp32
-    
+
     ignores:
-        [.float(), +, .softplus, .shape, new_zeros, repeat, stack, to(dtype), silu] 
+        [.float(), +, .softplus, .shape, new_zeros, repeat, stack, to(dtype), silu]
     """
-    assert not with_complex 
+    assert not with_complex
     # https://github.com/state-spaces/mamba/issues/110
     flops = 9 * B * L * D * N
     if with_D:
         flops += B * D * L
     if with_Z:
-        flops += B * D * L    
+        flops += B * D * L
     return flops
 
 def flops_selective_scan_ref(B=1, L=256, D=768, N=16, with_D=True, with_Z=False, with_Group=True, with_complex=False):
@@ -60,12 +60,12 @@ def flops_selective_scan_ref(B=1, L=256, D=768, N=16, with_D=True, with_Z=False,
     D: r(D)
     z: r(B D L)
     delta_bias: r(D), fp32
-    
+
     ignores:
-        [.float(), +, .softplus, .shape, new_zeros, repeat, stack, to(dtype), silu] 
+        [.float(), +, .softplus, .shape, new_zeros, repeat, stack, to(dtype), silu]
     """
     import numpy as np
-    
+
     # fvcore.nn.jit_handles
     def get_flops_einsum(input_shapes, equation):
         np_arrs = [np.zeros(s) for s in input_shapes]
@@ -75,7 +75,7 @@ def flops_selective_scan_ref(B=1, L=256, D=768, N=16, with_D=True, with_Z=False,
                 # divided by 2 because we count MAC (multiply-add counted as one flop)
                 flop = float(np.floor(float(line.split(":")[-1]) / 2))
                 return flop
-    
+
 
     assert not with_complex
 
@@ -126,13 +126,13 @@ def flops_selective_scan_ref(B=1, L=256, D=768, N=16, with_D=True, with_Z=False,
             C = repeat(C, "B G N L -> B (G H) N L", H=dim // C.shape[1])
         last_state = None
         """
-    
-    in_for_flops = B * D * N   
+
+    in_for_flops = B * D * N
     if with_Group:
         in_for_flops += get_flops_einsum([[B, D, N], [B, D, N]], "bdn,bdn->bd")
     else:
         in_for_flops += get_flops_einsum([[B, D, N], [B, N]], "bdn,bn->bd")
-    flops += L * in_for_flops 
+    flops += L * in_for_flops
     if False:
         ...
         """
@@ -165,7 +165,7 @@ def flops_selective_scan_ref(B=1, L=256, D=768, N=16, with_D=True, with_Z=False,
             out = out * F.silu(z)
         out = out.to(dtype=dtype_in)
         """
-    
+
     return flops
 
 
@@ -188,6 +188,81 @@ def selective_scan_flop_jit(inputs, outputs):
     flops = flops_selective_scan_ref(B=B, L=L, D=D, N=N, with_D=with_D, with_Z=with_z, with_Group=with_Group)
     return flops
 
+class Linear2d(nn.Linear):
+    def forward(self, x: torch.Tensor):
+        # B, C, H, W = x.shape
+        return F.conv2d(x, self.weight[:, :, None, None], self.bias)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        state_dict[prefix + "weight"] = state_dict[prefix + "weight"].view(self.weight.shape)
+        return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
+class Mlp(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.,channels_first=False):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+
+        Linear = Linear2d if channels_first else nn.Linear
+        self.fc1 = Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+class gMlp(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.,channels_first=False):
+        super().__init__()
+        self.channel_first = channels_first
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+
+        Linear = Linear2d if channels_first else nn.Linear
+        self.fc1 = Linear(in_features, 2 * hidden_features)
+        self.act = act_layer()
+        self.fc2 = Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x: torch.Tensor):
+        x = self.fc1(x)
+        x, z = x.chunk(2, dim=(1 if self.channel_first else -1))
+        x = self.fc2(x * self.act(z))
+        x = self.drop(x)
+        return x
+
+class BiAttn(nn.Module):
+    def __init__(self, in_channels, act_ratio=0.125, act_fn=nn.GELU, gate_fn=nn.Sigmoid):
+        super().__init__()
+        reduce_channels = int(in_channels * act_ratio)
+        self.norm = nn.LayerNorm(in_channels)
+        self.global_reduce = nn.Linear(in_channels, reduce_channels)
+        # self.local_reduce = nn.Linear(in_channels, reduce_channels)
+        self.act_fn = act_fn()
+        self.channel_select = nn.Linear(reduce_channels, in_channels)
+        # self.spatial_select = nn.Linear(reduce_channels * 2, 1)
+        self.gate_fn = gate_fn()
+
+    def forward(self, x):
+        ori_x = x
+        x = self.norm(x)
+        x_global = x.mean(1, keepdim=True)
+        x_global = self.act_fn(self.global_reduce(x_global))
+        # x_local = self.act_fn(self.local_reduce(x))
+
+        c_attn = self.channel_select(x_global)
+        c_attn = self.gate_fn(c_attn)  # [B, 1, C]
+        # s_attn = self.spatial_select(torch.cat([x_local, x_global.expand(-1, x.shape[1], -1)], dim=-1))
+        # s_attn = self.gate_fn(s_attn)  # [B, N, 1]
+
+        attn = c_attn #* s_attn  # [B, N, C]
+        return ori_x * attn
 
 class PatchEmbed2D(nn.Module):
     r""" Image to Patch Embedding
@@ -247,7 +322,7 @@ class PatchMerging2D(nn.Module):
             x1 = x1[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x2 = x2[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x3 = x3[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
-        
+
         x = torch.cat([x0, x1, x2, x3], -1)  # B H/2 W/2 4*C
         x = x.view(B, H//2, W//2, 4 * C)  # B H/2*W/2 4*C
 
@@ -289,7 +364,7 @@ class PatchMerging2Dv1(nn.Module):
             x1 = x1[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x2 = x2[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x3 = x3[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
-        
+
         x = torch.cat([x0, x1, x2, x3], -1)  # B H/2 W/2 4*C
         x = x.view(B, H//2, W//2, 4 * C)  # B H/2*W/2 4*C
 
@@ -321,7 +396,7 @@ class FinalPatchExpand_X4(nn.Module):
         self.dim = dim
         self.dim_scale = dim_scale
         self.expand = nn.Linear(dim, 16*dim, bias=False)
-        self.output_dim = dim 
+        self.output_dim = dim
         self.norm = norm_layer(self.output_dim)
 
     def forward(self, x):
@@ -377,10 +452,10 @@ class SS2D(nn.Module):
         self.act = nn.SiLU()
 
         self.x_proj = (
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
         )
         self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=4, N, inner)
         del self.x_proj
@@ -394,7 +469,7 @@ class SS2D(nn.Module):
         self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=4, inner, rank)
         self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=4, inner)
         del self.dt_projs
-        
+
         self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
         self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
 
@@ -405,6 +480,7 @@ class SS2D(nn.Module):
         self.out_norm = nn.LayerNorm(self.d_inner)
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
         self.dropout = nn.Dropout(dropout) if dropout > 0. else None
+
 
     @staticmethod
     def dt_init(dt_rank, d_inner, dt_scale=1.0, dt_init="random", dt_min=0.001, dt_max=0.1, dt_init_floor=1e-4, **factory_kwargs):
@@ -430,7 +506,7 @@ class SS2D(nn.Module):
             dt_proj.bias.copy_(inv_dt)
         # Our initialization would set all Linear.bias to zero, need to mark this one as _no_reinit
         dt_proj.bias._no_reinit = True
-        
+
         return dt_proj
 
     @staticmethod
@@ -481,13 +557,13 @@ class SS2D(nn.Module):
         dts = dts.contiguous().float().view(B, -1, L) # (b, k * d, l)
         Bs = Bs.float().view(B, K, -1, L) # (b, k, d_state, l)
         Cs = Cs.float().view(B, K, -1, L) # (b, k, d_state, l)
-        
+
         Ds = self.Ds.float().view(-1) # (k * d)
         As = -torch.exp(self.A_logs.float()).view(-1, self.d_state)  # (k * d, d_state)
         dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
 
         out_y = self.selective_scan(
-            xs, dts, 
+            xs, dts,
             As, Bs, Cs, Ds, z=None,
             delta_bias=dt_projs_bias,
             delta_softplus=True,
@@ -503,7 +579,7 @@ class SS2D(nn.Module):
         y = self.out_norm(y).to(x.dtype)
 
         return y
-    
+
     def forward_corev0_seq(self, x: torch.Tensor):
         self.selective_scan = selective_scan_fn
 
@@ -523,7 +599,7 @@ class SS2D(nn.Module):
         dts = dts.contiguous().float().view(B, -1, L) # (b, k * d, l)
         Bs = Bs.float().view(B, K, -1, L) # (b, k, d_state, l)
         Cs = Cs.float().view(B, K, -1, L) # (b, k, d_state, l)
-        
+
         Ds = self.Ds.float().view(-1) # (k * d)
         As = -torch.exp(self.A_logs.float()).view(-1, self.d_state)  # (k * d, d_state)
         dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
@@ -531,7 +607,7 @@ class SS2D(nn.Module):
         out_y = []
         for i in range(4):
             yi = self.selective_scan(
-                xs[:, i], dts[:, i], 
+                xs[:, i], dts[:, i],
                 As[i], Bs[:, i], Cs[:, i], Ds[i],
                 delta_bias=dt_projs_bias[i],
                 delta_softplus=True,
@@ -569,7 +645,7 @@ class SS2D(nn.Module):
         dts = dts.contiguous().view(B, -1, L) # (b, k * d, l)
         Bs = Bs.view(B, K, -1, L) # (b, k, d_state, l)
         Cs = Cs.view(B, K, -1, L) # (b, k, d_state, l)
-        
+
         As = -torch.exp(self.A_logs.float()).view(-1, self.d_state)  # (k * d, d_state)
         Ds = self.Ds.view(-1) # (k * d)
         dt_projs_bias = self.dt_projs_bias.view(-1) # (k * d)
@@ -577,7 +653,7 @@ class SS2D(nn.Module):
         # print(self.Ds.dtype, self.A_logs.dtype, self.dt_projs_bias.dtype, flush=True) # fp16, fp16, fp16
 
         out_y = self.selective_scan(
-            xs, dts, 
+            xs, dts,
             As, Bs, Cs, Ds,
             delta_bias=dt_projs_bias,
             delta_softplus=True,
@@ -617,6 +693,10 @@ class VSSBlock(nn.Module):
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
         attn_drop_rate: float = 0,
         d_state: int = 16,
+        mlp_branch=True,
+        mlp_ratio=4.0,
+        mlp_act_layer=nn.GELU,
+        mlp_drop_rate=0.0,
         **kwargs,
     ):
         super().__init__()
@@ -624,8 +704,21 @@ class VSSBlock(nn.Module):
         self.self_attention = SS2D(d_model=hidden_dim, dropout=attn_drop_rate, d_state=d_state, **kwargs)
         self.drop_path = DropPath(drop_path)
 
+        self.mlp_branch = mlp_branch
+        norm_layer = nn.LayerNorm
+        channel_first = False
+
+        if mlp_branch:
+            _MLP = Mlp
+            self.norm2 = norm_layer(hidden_dim)
+            mlp_hidden_dim = int(hidden_dim * mlp_ratio)
+            self.mlp = _MLP(in_features=hidden_dim, hidden_features=mlp_hidden_dim, act_layer=mlp_act_layer, drop=mlp_drop_rate, channels_first=channel_first)
+
     def forward(self, input: torch.Tensor):
         x = input + self.drop_path(self.self_attention(self.ln_1(input)))
+
+        if self.mlp_branch:
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
 
@@ -643,21 +736,21 @@ class VSSLayer(nn.Module):
     """
 
     def __init__(
-        self, 
-        dim, 
-        depth, 
+        self,
+        dim,
+        depth,
         attn_drop=0.,
-        drop_path=0., 
-        norm_layer=nn.LayerNorm, 
-        downsample=None, 
-        use_checkpoint=False, 
+        drop_path=0.,
+        norm_layer=nn.LayerNorm,
+        downsample=None,
+        use_checkpoint=False,
         d_state=16,
         **kwargs,
     ):
         super().__init__()
         self.dim = dim
         self.use_checkpoint = use_checkpoint
-        
+
         # print(f'dim {dim}')
         # print(f'norm_layer {norm_layer.extra_repr()}')
 
@@ -668,9 +761,10 @@ class VSSLayer(nn.Module):
                 norm_layer=norm_layer,
                 attn_drop_rate=attn_drop,
                 d_state=d_state,
+                **kwargs,
             )
             for i in range(depth)])
-        
+
         if True: # is this really applied? Yes, but been overriden later in VSSM!
             def _init_weights(module: nn.Module):
                 for name, p in module.named_parameters():
@@ -691,7 +785,7 @@ class VSSLayer(nn.Module):
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
-        
+
         if self.downsample is not None:
             # print(f'ds x.shape {x.shape}')
             x = self.downsample(x)
@@ -713,14 +807,14 @@ class VSSLayer_up(nn.Module):
     """
 
     def __init__(
-        self, 
-        dim, 
-        depth, 
+        self,
+        dim,
+        depth,
         attn_drop=0.,
-        drop_path=0., 
-        norm_layer=nn.LayerNorm, 
-        upsample=None, 
-        use_checkpoint=False, 
+        drop_path=0.,
+        norm_layer=nn.LayerNorm,
+        upsample=None,
+        use_checkpoint=False,
         d_state=16,
         **kwargs,
     ):
@@ -735,9 +829,10 @@ class VSSLayer_up(nn.Module):
                 norm_layer=norm_layer,
                 attn_drop_rate=attn_drop,
                 d_state=d_state,
+                **kwargs,
             )
             for i in range(depth)])
-        
+
         if True: # is this really applied? Yes, but been overriden later in VSSM!
             def _init_weights(module: nn.Module):
                 for name, p in module.named_parameters():
@@ -758,7 +853,7 @@ class VSSLayer_up(nn.Module):
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
-        
+
         if self.upsample is not None:
             x = self.upsample(x)
 
@@ -766,7 +861,7 @@ class VSSLayer_up(nn.Module):
 
 
 class VSSM(nn.Module):
-    def __init__(self, patch_size=4, in_chans=1, num_classes=4, depths=[2, 2, 9, 2], 
+    def __init__(self, patch_size=4, in_chans=1, num_classes=4, depths=[2, 2, 9, 2],
                  dims=[96, 192, 384, 768], d_state=16, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  use_checkpoint=False, final_upsample="expand_first", ver='v0', **kwargs):
@@ -788,13 +883,19 @@ class VSSM(nn.Module):
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
+        common_kwargs = {
+            'ver': ver,
+            'mlp_branch': True if ver in ['v2', 'v3'] else False,
+            'biattn': True if ver in ['v4'] else False,
+        }
+
         # build encoder and bottleneck layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             if self.ver in ['v0']:
                 dim = int(dims[0] * 2 ** i_layer)
                 downsample = PatchMerging2D if (i_layer < self.num_layers - 1) else None
-            elif self.ver in ['v1']:
+            elif self.ver in ['v1', 'v2', 'v3', 'v4']:
                 dim = dims[i_layer]
                 downsample = None
 
@@ -802,12 +903,13 @@ class VSSM(nn.Module):
                 dim=dim, #int(embed_dim * 2 ** i_layer)
                 depth=depths[i_layer],
                 d_state=math.ceil(dims[0] / 6) if d_state is None else d_state, # 20240109
-                drop=drop_rate, 
+                drop=drop_rate,
                 attn_drop=attn_drop_rate,
                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                 norm_layer=norm_layer,
                 downsample=downsample,
                 use_checkpoint=use_checkpoint,
+                **common_kwargs,
             )
             self.layers.append(layer)
 
@@ -818,7 +920,7 @@ class VSSM(nn.Module):
             if self.ver in ['v0']:
                 dim = int(dims[0]*2**(self.num_layers-1-i_layer))
                 upsample = PatchExpand if (i_layer < self.num_layers - 1) else None
-            elif self.ver in ['v1']:
+            elif self.ver in ['v1', 'v2', 'v3', 'v4']:
                 dim = dims[self.num_layers-1-i_layer]
                 upsample = None
 
@@ -831,12 +933,13 @@ class VSSM(nn.Module):
                     dim=dim,
                     depth=depths[(self.num_layers-1-i_layer)],
                     d_state=math.ceil(dims[0] / 6) if d_state is None else d_state, # 20240109
-                    drop=drop_rate, 
+                    drop=drop_rate,
                     attn_drop=attn_drop_rate,
                     drop_path=dpr[sum(depths[:(self.num_layers-1-i_layer)]):sum(depths[:(self.num_layers-1-i_layer) + 1])],
                     norm_layer=norm_layer,
-                    upsample=None,
+                    upsample=upsample,
                     use_checkpoint=use_checkpoint,
+                    **common_kwargs,
                 )
             self.layers_up.append(layer_up)
             self.concat_back_dim.append(concat_linear)
@@ -859,7 +962,7 @@ class VSSM(nn.Module):
         no fc.weight found in the any of the model parameters
         no nn.Embedding found in the any of the model parameters
         so the thing is, VSSBlock initialization is useless
-        
+
         Conv2D is not intialized !!!
         """
         # print(m, getattr(getattr(m, "weight", nn.Identity()), "INIT", None), isinstance(m, nn.Linear), "======================")
@@ -905,7 +1008,7 @@ class VSSM(nn.Module):
                 x = layer_up(x)
 
         x = self.norm_up(x)  # B H W C
-  
+
         return x
     def up_x4(self, x):
         if self.final_upsample=="expand_first":
@@ -914,7 +1017,7 @@ class VSSM(nn.Module):
             x = x.view(B, 4*H, 4*W, -1)
             x = x.permute(0, 3, 1, 2)  # B,C,H,W
             x = self.output(x)
-            
+
         return x
     def forward(self, x):
         x,x_downsample = self.forward_features(x)
@@ -965,7 +1068,7 @@ def check_vssm_equals_vmambadp():
     with torch.cuda.amp.autocast():
         y2 = newvss.forward_backbone(input)
     print((y1 -y2).abs().sum()) # tensor(0., device='cuda:0', grad_fn=<SumBackward0>)
-    
+
     # test 2 True ==========================================
     torch.manual_seed(0); torch.cuda.manual_seed(0)
     oldvss = VMambaSSM(depths=[2,2,6,2]).cuda()
@@ -973,7 +1076,7 @@ def check_vssm_equals_vmambadp():
     newvss = VSSM(depths=[2,2,6,2]).cuda()
 
     miss_align = 0
-    for k, v in oldvss.state_dict().items(): 
+    for k, v in oldvss.state_dict().items():
         same = (oldvss.state_dict()[k] == newvss.state_dict()[k]).all()
         if not same:
             print(k, same)
@@ -1047,9 +1150,9 @@ class Backbone_VSSM(VSSM):
 if __name__ == "__main__":
     # check_vssm_equals_vmambadp()
     img_channels = 3
-    img_size = 224
+    img_size = 512
     batch_size = 1
-    model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1,1,1,1], ver='v1', dims=[96]*4).to('cuda')
+    model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1,1,1,1], ver='v3', dims=[96]*4).to('cuda')
     int = torch.randn(batch_size,img_channels,img_size,img_size).cuda()
     out = model(int)
     print(out.shape)
