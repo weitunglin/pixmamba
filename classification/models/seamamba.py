@@ -243,10 +243,10 @@ class BiAttn(nn.Module):
         reduce_channels = int(in_channels * act_ratio)
         self.norm = nn.LayerNorm(in_channels)
         self.global_reduce = nn.Linear(in_channels, reduce_channels)
-        # self.local_reduce = nn.Linear(in_channels, reduce_channels)
+        self.local_reduce = nn.Linear(in_channels, reduce_channels)
         self.act_fn = act_fn()
         self.channel_select = nn.Linear(reduce_channels, in_channels)
-        # self.spatial_select = nn.Linear(reduce_channels * 2, 1)
+        self.spatial_select = nn.Linear(reduce_channels * 2, 1)
         self.gate_fn = gate_fn()
 
     def forward(self, x):
@@ -254,14 +254,14 @@ class BiAttn(nn.Module):
         x = self.norm(x)
         x_global = x.mean(1, keepdim=True)
         x_global = self.act_fn(self.global_reduce(x_global))
-        # x_local = self.act_fn(self.local_reduce(x))
+        x_local = self.act_fn(self.local_reduce(x))
 
         c_attn = self.channel_select(x_global)
         c_attn = self.gate_fn(c_attn)  # [B, 1, C]
-        # s_attn = self.spatial_select(torch.cat([x_local, x_global.expand(-1, x.shape[1], -1)], dim=-1))
-        # s_attn = self.gate_fn(s_attn)  # [B, N, 1]
+        s_attn = self.spatial_select(torch.cat([x_local, x_global.expand(-1, x.shape[1], -1)], dim=-1))
+        s_attn = self.gate_fn(s_attn)  # [B, N, 1]
 
-        attn = c_attn #* s_attn  # [B, N, C]
+        attn = c_attn * s_attn  # [B, N, C]
         return ori_x * attn
 
 class PatchEmbed2D(nn.Module):
@@ -395,7 +395,7 @@ class FinalPatchExpand_X4(nn.Module):
         super().__init__()
         self.dim = dim
         self.dim_scale = dim_scale
-        self.expand = nn.Linear(dim, 16*dim, bias=False)
+        self.expand = nn.Linear(dim, (self.dim_scale**2)*dim, bias=False)
         self.output_dim = dim
         self.norm = norm_layer(self.output_dim)
 
@@ -990,17 +990,28 @@ class VSSM(nn.Module):
         self.final_upsample = final_upsample
         self.ver = ver
 
-        self.patch_embed = PatchEmbed2D(patch_size=patch_size, in_chans=in_chans, embed_dim=self.embed_dim,
-            norm_layer=norm_layer if patch_norm else None)
-
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
-        common_kwargs = {
+        self.common_kwargs = {
             'ver': ver,
+            'unet': True if ver in ['v0'] else False,
             'mlp_branch': True if ver in ['v2', 'v3'] else False,
-            'biattn': True if ver in ['v4', 'v5'] else False,
-            'bidir': True if ver in ['v5'] else False,
+            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11'] else False,
+            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11'] else False,
+            'pix': False,
+            'residual': True if ver in ['v9', 'v10', 'v11'] else False,
+            'p8': True if ver in [] else False,
         }
+
+        if self.common_kwargs['p8']:
+            patch_size = 8
+
+        if self.common_kwargs['pix']:
+            self.patch_embed = PatchEmbed2D(patch_size=1, in_chans=in_chans, embed_dim=self.embed_dim,
+                norm_layer=norm_layer if patch_norm else None)
+        else:
+            self.patch_embed = PatchEmbed2D(patch_size=patch_size, in_chans=in_chans, embed_dim=self.embed_dim,
+                norm_layer=norm_layer if patch_norm else None)
 
         # build encoder and bottleneck layers
         self.layers = nn.ModuleList()
@@ -1023,49 +1034,58 @@ class VSSM(nn.Module):
                 norm_layer=norm_layer,
                 downsample=downsample,
                 use_checkpoint=use_checkpoint,
-                **common_kwargs,
+                **self.common_kwargs,
             )
             self.layers.append(layer)
 
         # build decoder layers
-        self.layers_up = nn.ModuleList()
-        self.concat_back_dim = nn.ModuleList()
-        for i_layer in range(self.num_layers):
-            if self.ver in ['v0']:
-                dim = int(dims[0]*2**(self.num_layers-1-i_layer))
-                upsample = PatchExpand if (i_layer < self.num_layers - 1) else None
-            # elif self.ver in ['v1', 'v2', 'v3', 'v4']:
-            else:
-                dim = dims[self.num_layers-1-i_layer]
-                upsample = None
+        if not self.common_kwargs['unet']:
+            self.layers_up = nn.ModuleList()
+            self.concat_back_dim = nn.ModuleList()
+            for i_layer in range(self.num_layers):
+                if self.ver in ['v0']:
+                    dim = int(dims[0]*2**(self.num_layers-1-i_layer))
+                    upsample = PatchExpand if (i_layer < self.num_layers - 1) else None
+                # elif self.ver in ['v1', 'v2', 'v3', 'v4']:
+                else:
+                    dim = dims[self.num_layers-1-i_layer]
+                    upsample = None
 
-            concat_linear = nn.Linear(2*dim, dim) if i_layer > 0 else nn.Identity()
+                concat_linear = nn.Linear(2*dim, dim) if i_layer > 0 else nn.Identity()
 
-            if i_layer ==0 :
-                layer_up = PatchExpand(dim=dim, dim_scale=2, norm_layer=norm_layer)
-            else:
-                layer_up = VSSLayer_up(
-                    dim=dim,
-                    depth=depths[(self.num_layers-1-i_layer)],
-                    d_state=math.ceil(dims[0] / 6) if d_state is None else d_state, # 20240109
-                    drop=drop_rate,
-                    attn_drop=attn_drop_rate,
-                    drop_path=dpr[sum(depths[:(self.num_layers-1-i_layer)]):sum(depths[:(self.num_layers-1-i_layer) + 1])],
-                    norm_layer=norm_layer,
-                    upsample=upsample,
-                    use_checkpoint=use_checkpoint,
-                    **common_kwargs,
-                )
-            self.layers_up.append(layer_up)
-            self.concat_back_dim.append(concat_linear)
+                if i_layer ==0 :
+                    layer_up = PatchExpand(dim=dim, dim_scale=2, norm_layer=norm_layer)
+                else:
+                    layer_up = VSSLayer_up(
+                        dim=dim,
+                        depth=depths[(self.num_layers-1-i_layer)],
+                        d_state=math.ceil(dims[0] / 6) if d_state is None else d_state, # 20240109
+                        drop=drop_rate,
+                        attn_drop=attn_drop_rate,
+                        drop_path=dpr[sum(depths[:(self.num_layers-1-i_layer)]):sum(depths[:(self.num_layers-1-i_layer) + 1])],
+                        norm_layer=norm_layer,
+                        upsample=upsample,
+                        use_checkpoint=use_checkpoint,
+                        **self.common_kwargs,
+                    )
+                self.layers_up.append(layer_up)
+                self.concat_back_dim.append(concat_linear)
 
         self.norm = norm_layer(self.num_features)
         self.norm_up = norm_layer(self.embed_dim)
 
-        if self.final_upsample == "expand_first":
-            print("---final upsample expand_first---")
-            self.up = FinalPatchExpand_X4(dim_scale=4,dim=self.embed_dim)
-            self.output = nn.Conv2d(in_channels=self.embed_dim,out_channels=self.num_classes,kernel_size=1,bias=False)
+        if self.common_kwargs['pix']:
+            if self.final_upsample == "expand_first":
+                self.output = nn.Conv2d(in_channels=self.embed_dim,out_channels=self.num_classes,kernel_size=1,bias=False)
+        else:
+            if self.final_upsample == "expand_first":
+                print("---final upsample expand_first---")
+                self.up = FinalPatchExpand_X4(dim_scale=4,dim=self.embed_dim)
+                if self.common_kwargs['p8']:
+                    self.up2 = PatchExpand(dim_scale=2, dim=self.embed_dim)
+                    self.output = nn.Conv2d(in_channels=self.embed_dim//2,out_channels=self.num_classes,kernel_size=1,bias=False)
+                else:
+                    self.output = nn.Conv2d(in_channels=self.embed_dim,out_channels=self.num_classes,kernel_size=1,bias=False)
 
         self.apply(self._init_weights)
 
@@ -1093,13 +1113,18 @@ class VSSM(nn.Module):
     def forward_features(self, x):
         x = self.patch_embed(x)
 
+        x0 = x
         # print(f'x.shape {x.shape}')
 
         x_downsample = []
-        for layer in self.layers:
+        x_downsample.append(x0)
+        num_layers = len(self.layers)
+        for i_layer, layer in enumerate(self.layers):
             # print(f'i_layer {layer}')
-            # print(f'x.shape {x.shape}')
-            x_downsample.append(x)
+            if self.common_kwargs['residual']:
+                if i_layer >= num_layers // 2:
+                    x = x + x_downsample[num_layers - i_layer - 1]
+                x_downsample.append(x)
             x = layer(x)
             # print(f'x.shape {x.shape}')
         x = self.norm(x)  # B H W C
@@ -1128,18 +1153,26 @@ class VSSM(nn.Module):
     def up_x4(self, x):
         if self.final_upsample=="expand_first":
             B,H,W,C = x.shape
-            x = self.up(x)
-            x = x.view(B, 4*H, 4*W, -1)
+            if not self.common_kwargs['pix']:
+                x = self.up(x)
+
+                if not self.common_kwargs['p8']:
+                    x = x.view(B, 4*H, 4*W, -1)
+                else:
+                    x = self.up2(x)
             x = x.permute(0, 3, 1, 2)  # B,C,H,W
             x = self.output(x)
 
         return x
     def forward(self, x):
         x,x_downsample = self.forward_features(x)
+        if self.common_kwargs['residual']:
+            x = x + x_downsample[0]
 
         # print(f'x.shape {x.shape}')
-        if self.ver in ['v0']:
-            x = self.forward_up_features(x,x_downsample)
+        if self.common_kwargs['unet']:
+            x = self.forward_up_features(x,x_downsample[1:])
+
         x = self.up_x4(x)
         return x
 
@@ -1267,8 +1300,9 @@ if __name__ == "__main__":
     img_channels = 3
     img_size = 256
     batch_size = 1
-    model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v5', dims=[96]*4).to('cuda')
-    int = torch.randn(batch_size,img_channels,img_size, img_size).cuda()
-    out = model(int)
-    print(out.shape)
-    print(model.flops((img_channels, 640, 480)))
+    with torch.autocast("cuda", dtype=torch.float16):
+        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v11', dims=[48]*4).to('cuda')
+        int = torch.randn(batch_size,img_channels,img_size, img_size).cuda()
+        out = model(int)
+        print(out.shape)
+        print(model.flops((img_channels, 1280, 720)))
