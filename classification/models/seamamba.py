@@ -998,15 +998,21 @@ class VSSM(nn.Module):
             'ver': ver,
             'unet': True if ver in ['v0'] else False,
             'mlp_branch': True if ver in ['v2', 'v3'] else False,
-            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14'] else False,
-            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14'] else False,
+            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16'] else False,
+            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16'] else False,
             'pix': False,
-            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13', 'v14'] else False,
+            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16'] else False,
             'p8': True if ver in [] else False,
         }
 
         if self.ver in ['v14']:
             d_state = 8
+        elif self.ver in ['v15', 'v16']:
+            d_state = 8
+
+        if self.common_kwargs['residual']:
+            self.skip_norm1 = nn.LayerNorm(self.embed_dim)
+            self.act0 = nn.SiLU()
 
         if self.common_kwargs['p8']:
             patch_size = 8
@@ -1118,13 +1124,17 @@ class VSSM(nn.Module):
 
     #Encoder and Bottleneck
     def forward_features(self, x):
+        x_downsample = []
+        if self.common_kwargs['residual']:
+            x0 = []
+            x0.append(x)
         x = self.patch_embed(x)
 
-        x0 = x
         # print(f'x.shape {x.shape}')
 
-        x_downsample = []
-        x_downsample.append(x0)
+        if self.common_kwargs['residual']:
+            x0.append(x)
+        x_downsample.append(x)
         num_layers = len(self.layers)
         for i_layer, layer in enumerate(self.layers):
             # print(f'i_layer {layer}')
@@ -1135,7 +1145,10 @@ class VSSM(nn.Module):
             x = layer(x)
             # print(f'x.shape {x.shape}')
         x = self.norm(x)  # B H W C
-        return x, x_downsample
+        if self.common_kwargs['residual']:
+            return x, x_downsample, x0
+        else:
+            return x, x_downsample
 
     # def forward_backbone(self, x):
     #     x = self.patch_embed(x)
@@ -1157,7 +1170,7 @@ class VSSM(nn.Module):
         x = self.norm_up(x)  # B H W C
 
         return x
-    def up_x4(self, x):
+    def up_x4(self, x, x0=None):
         if self.final_upsample=="expand_first":
             B,H,W,C = x.shape
             if not self.common_kwargs['pix']:
@@ -1169,18 +1182,21 @@ class VSSM(nn.Module):
                     x = self.up2(x)
             x = x.permute(0, 3, 1, 2)  # B,C,H,W
             x = self.output(x)
+            x = x + self.act0(x0)
 
         return x
     def forward(self, x):
-        x,x_downsample = self.forward_features(x)
         if self.common_kwargs['residual']:
-            x = x + x_downsample[0]
+            x,x_downsample,x0 = self.forward_features(x)
+            x = x + self.skip_norm1(x0[1])
+        else:
+            x,x_downsample = self.forward_features(x)
 
         # print(f'x.shape {x.shape}')
         if self.common_kwargs['unet']:
-            x = self.forward_up_features(x,x_downsample[1:])
+            x = self.forward_up_features(x,x_downsample)
 
-        x = self.up_x4(x)
+        x = self.up_x4(x, x0[0])
         return x
 
 
@@ -1309,7 +1325,7 @@ if __name__ == "__main__":
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v14', dims=[48]*4).to('cuda')
+        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*6, ver='v16', dims=[48]*6).to('cuda')
         print(model)
         model = model.half()
         int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
