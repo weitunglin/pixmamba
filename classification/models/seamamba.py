@@ -415,7 +415,7 @@ class SS2D(nn.Module):
         d_state=16,
         # d_state="auto", # 20240109
         d_conv=3,
-        expand=2,
+        expand=1.5,
         dt_rank="auto",
         dt_min=0.001,
         dt_max=0.1,
@@ -451,7 +451,7 @@ class SS2D(nn.Module):
         self.bidir = bidir
         self.biattn = biattn
         if self.biattn:
-            self.attn = BiAttn(self.d_inner, act_ratio=0.125, act_fn=nn.GELU)
+            self.attn = BiAttn(self.d_inner, act_ratio=0.25, act_fn=nn.GELU)
 
         self.conv2d = nn.Conv2d(
             in_channels=self.d_inner,
@@ -813,7 +813,7 @@ class VSSBlock(nn.Module):
     ):
         super().__init__()
         self.ln_1 = norm_layer(hidden_dim)
-        self.self_attention = SS2D(d_model=hidden_dim, dropout=attn_drop_rate, d_state=d_state, no_act_branch=mlp_branch, **kwargs)
+        self.self_attention = SS2D(d_model=hidden_dim, dropout=attn_drop_rate, d_state=d_state, no_act_branch=not mlp_branch, **kwargs)
         self.drop_path = DropPath(drop_path)
 
         self.mlp_branch = mlp_branch
@@ -996,10 +996,10 @@ class VSSM(nn.Module):
             'ver': ver,
             'unet': True if ver in ['v0'] else False,
             'mlp_branch': True if ver in ['v2', 'v3'] else False,
-            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11'] else False,
-            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11'] else False,
+            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13'] else False,
+            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13'] else False,
             'pix': False,
-            'residual': True if ver in ['v9', 'v10', 'v11'] else False,
+            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13'] else False,
             'p8': True if ver in [] else False,
         }
 
@@ -1039,7 +1039,7 @@ class VSSM(nn.Module):
             self.layers.append(layer)
 
         # build decoder layers
-        if not self.common_kwargs['unet']:
+        if self.common_kwargs['unet']:
             self.layers_up = nn.ModuleList()
             self.concat_back_dim = nn.ModuleList()
             for i_layer in range(self.num_layers):
@@ -1072,7 +1072,9 @@ class VSSM(nn.Module):
                 self.concat_back_dim.append(concat_linear)
 
         self.norm = norm_layer(self.num_features)
-        self.norm_up = norm_layer(self.embed_dim)
+
+        if self.common_kwargs['unet']:
+            self.norm_up = norm_layer(self.embed_dim)
 
         if self.common_kwargs['pix']:
             if self.final_upsample == "expand_first":
@@ -1188,11 +1190,12 @@ class VSSM(nn.Module):
         }
 
         model = copy.deepcopy(self)
-        model.cuda().eval()
+        model.half().cuda().eval()
 
-        input = torch.randn((1, *shape), device=next(model.parameters()).device)
+        input = torch.randn((1, *shape), device=next(model.parameters()).device).half()
         params = parameter_count(model)[""]
         Gflops, unsupported = flop_count(model=model, inputs=(input,), supported_ops=supported_ops)
+        print(Gflops)
 
         del model, input
         # return sum(Gflops.values()) * 1e9
@@ -1301,8 +1304,10 @@ if __name__ == "__main__":
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v11', dims=[48]*4).to('cuda')
-        int = torch.randn(batch_size,img_channels,img_size, img_size).cuda()
+        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v13', dims=[48]*4).to('cuda')
+        print(model)
+        model = model.half()
+        int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
         out = model(int)
         print(out.shape)
         print(model.flops((img_channels, 1280, 720)))
