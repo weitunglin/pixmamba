@@ -415,7 +415,7 @@ class SS2D(nn.Module):
         d_state=16,
         # d_state="auto", # 20240109
         d_conv=3,
-        expand=1.5,
+        expand=2,
         dt_rank="auto",
         dt_min=0.001,
         dt_max=0.1,
@@ -462,7 +462,9 @@ class SS2D(nn.Module):
             padding=(d_conv - 1) // 2,
             **factory_kwargs,
         )
-        self.act = nn.SiLU()
+
+        # self.act = nn.SiLU()
+        self.act = nn.GELU()
 
         if self.bidir:
             self.x_proj = (
@@ -996,12 +998,15 @@ class VSSM(nn.Module):
             'ver': ver,
             'unet': True if ver in ['v0'] else False,
             'mlp_branch': True if ver in ['v2', 'v3'] else False,
-            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13'] else False,
-            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13'] else False,
+            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14'] else False,
+            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14'] else False,
             'pix': False,
-            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13'] else False,
+            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13', 'v14'] else False,
             'p8': True if ver in [] else False,
         }
+
+        if self.ver in ['v14']:
+            d_state = 8
 
         if self.common_kwargs['p8']:
             patch_size = 8
@@ -1304,7 +1309,7 @@ if __name__ == "__main__":
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v13', dims=[48]*4).to('cuda')
+        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*4, ver='v14', dims=[48]*4).to('cuda')
         print(model)
         model = model.half()
         int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
