@@ -430,6 +430,7 @@ class SS2D(nn.Module):
         no_act_branch=False,
         biattn=False,
         bidir=False,
+        biattn_act_ratio=0.125,
         **kwargs,
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
@@ -451,7 +452,7 @@ class SS2D(nn.Module):
         self.bidir = bidir
         self.biattn = biattn
         if self.biattn:
-            self.attn = BiAttn(self.d_inner, act_ratio=0.25, act_fn=nn.GELU)
+            self.attn = BiAttn(self.d_inner, act_ratio=biattn_act_ratio, act_fn=nn.GELU)
 
         self.conv2d = nn.Conv2d(
             in_channels=self.d_inner,
@@ -976,7 +977,7 @@ class VSSLayer_up(nn.Module):
 
 class VSSM(nn.Module):
     def __init__(self, patch_size=4, in_chans=1, num_classes=4, depths=[2, 2, 9, 2],
-                 dims=[96, 192, 384, 768], d_state=16, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+                 dims=[96, 192, 384, 768], d_state=None, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  use_checkpoint=False, final_upsample="expand_first", ver='v0', **kwargs):
         super().__init__()
@@ -998,21 +999,23 @@ class VSSM(nn.Module):
             'ver': ver,
             'unet': True if ver in ['v0'] else False,
             'mlp_branch': True if ver in ['v2', 'v3'] else False,
-            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16'] else False,
-            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16'] else False,
+            'biattn': True if ver in ['v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16', 'v17', 'v18'] else False,
+            'bidir': True if ver in ['v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16', 'v17', 'v18'] else False,
             'pix': False,
-            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16'] else False,
+            'residual': True if ver in ['v9', 'v10', 'v11', 'v12', 'v13', 'v14', 'v15', 'v16', 'v17', 'v18'] else False,
             'p8': True if ver in [] else False,
         }
 
-        if self.ver in ['v14']:
-            d_state = 8
-        elif self.ver in ['v15', 'v16']:
-            d_state = 8
+        if 'biattn_act_ratio' in kwargs:
+            self.common_kwargs['biattn_act_ratio'] = kwargs['biattn_act_ratio']
 
-        if self.common_kwargs['residual']:
-            self.skip_norm1 = nn.LayerNorm(self.embed_dim)
-            self.act0 = nn.SiLU()
+        if d_state is None:
+            if self.ver in ['v14', 'v17', 'v18']:
+                d_state = 16
+            elif self.ver in ['v15', 'v16']:
+                d_state = 8
+            else:
+                d_state = 16
 
         if self.common_kwargs['p8']:
             patch_size = 8
@@ -1182,13 +1185,12 @@ class VSSM(nn.Module):
                     x = self.up2(x)
             x = x.permute(0, 3, 1, 2)  # B,C,H,W
             x = self.output(x)
-            x = x + self.act0(x0)
 
         return x
-    def forward(self, x):
+
+    def forward_(self, x):
         if self.common_kwargs['residual']:
             x,x_downsample,x0 = self.forward_features(x)
-            x = x + self.skip_norm1(x0[1])
         else:
             x,x_downsample = self.forward_features(x)
 
@@ -1196,9 +1198,11 @@ class VSSM(nn.Module):
         if self.common_kwargs['unet']:
             x = self.forward_up_features(x,x_downsample)
 
-        x = self.up_x4(x, x0[0])
+        x = self.up_x4(x)
         return x
 
+    def __call__(self, *args, **kwds):
+        return self.forward_(*args, **kwds)
 
     def flops(self, shape=(3, 224, 224)):
         # shape = self.__input_shape__[1:]
@@ -1258,9 +1262,7 @@ def check_vssm_equals_vmambadp():
 # compatible with openmmlab
 class Backbone_VSSM(VSSM):
     def __init__(self, patch_size=4, in_chans=3, embed_dim=96, depths=[2, 2, 9, 2], mlp_ratio=4., patch_norm=True, num_classes=4, drop_rate=0.0, drop_path_rate=0.2, **kwargs):
-        super().__init__(**kwargs)
-
-        self.mamba_unet = VSSM(
+        super().__init__(
             patch_size=patch_size,
             in_chans=in_chans,
             num_classes=in_chans,
@@ -1287,13 +1289,13 @@ class Backbone_VSSM(VSSM):
                     if "output" in k:
                         print("delete key:{}".format(k))
                         del pretrained_dict[k]
-                msg = self.mamba_unet.load_state_dict(pretrained_dict,strict=False)
+                msg = self.ssm.load_state_dict(pretrained_dict,strict=False)
                 # print(msg)
                 return
             pretrained_dict = pretrained_dict['model']
             print("---start load pretrained modle of swin encoder---")
 
-            model_dict = self.mamba_unet.state_dict()
+            model_dict = self.ssm.state_dict()
             full_dict = copy.deepcopy(pretrained_dict)
             for k, v in pretrained_dict.items():
                 if "layers." in k:
@@ -1306,7 +1308,7 @@ class Backbone_VSSM(VSSM):
                         print("delete:{};shape pretrain:{};shape model:{}".format(k,v.shape,model_dict[k].shape))
                         del full_dict[k]
 
-            msg = self.mamba_unet.load_state_dict(full_dict, strict=False)
+            msg = self.ssm.load_state_dict(full_dict, strict=False)
             # print(msg)
         else:
             print("none pretrain")
@@ -1314,7 +1316,7 @@ class Backbone_VSSM(VSSM):
     def forward(self, x):
         if x.size()[1] == 1:
             x = x.repeat(1,3,1,1)
-        logits = self.mamba_unet(x)
+        logits = self.forward_(x)
         return logits
 
 
@@ -1325,7 +1327,7 @@ if __name__ == "__main__":
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*6, ver='v16', dims=[48]*6).to('cuda')
+        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*6, ver='v16', d_state=12, dims=[36]*6, biattn_act_ratio=0.125).to('cuda')
         print(model)
         model = model.half()
         int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
