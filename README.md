@@ -3,24 +3,30 @@
 ```bash
 export UIEB_BASE=/home/allen/workspace/UIE_Benckmark
 export UIEB_PATH=${UIEB_BASE}/data/UIEB/All_Results
-export CONFIG_PATH=configs/mambauie/v14.py
-export EXP_NAME=seamamba_uieb_v14
+export MODEL_VER=v16
+export CONFIG_PATH=configs/mambauie/${MODEL_VER}.py
+export EXP_NAME=seamamba_uieb_${MODEL_VER}
 export CKPT_PATH=work_dirs/${EXP_NAME}/best_uie_SSIM_iter_18300.pth
 
-WANDB_MODE=offline bash ./tools/dist_test.sh $CONFIG_PATH $CKPT_PATH 1 --work-dir work_dirs/${EXP_NAME}/test
+PORT=29503 WANDB_MODE=offline bash ./tools/dist_test.sh $CONFIG_PATH $CKPT_PATH 1 --work-dir work_dirs/${EXP_NAME}/test
 
-export RUN_NAME=20240516_104405
-export CKPT_ITER=_17675
+export RUN_NAME=20240516_133414
+export CKPT_ITER=_16550
+
 rm -r ${UIEB_PATH}/${EXP_NAME}/T90
 mkdir -p ${UIEB_PATH}/${EXP_NAME}/T90
 cp -r work_dirs/${EXP_NAME}/test/val/${RUN_NAME}/vis_data/vis_image/*.png ${UIEB_PATH}/${EXP_NAME}/T90
-cd ${UIEB_PATH}/${EXP_NAME}/T90 && for f in *.png ; do mv -- "$f" "${f/_17675/}" ; done
+cd ${UIEB_PATH}/${EXP_NAME}/T90 && for f in *.png ; do mv -- "$f" "${f/$CKPT_ITER/}" ; done
 cd ${UIEB_BASE} && python evaluate_UIEB.py --method_name ${EXP_NAME} --folder T90
+
+cd /home/allen/workspace/seamamba/mmagic
 
 mkdir -p ${UIEB_PATH}/${EXP_NAME}/C60
 cp -r work_dirs/${EXP_NAME}/20240515_233040/vis_data/vis_image/*.png ${UIEB_PATH}/${EXP_NAME}/C60
 cd ${UIEB_PATH}/${EXP_NAME}/C60 && for f in *.png ; do mv -- "$f" "${f/_17425/}" ; done
 cd ${UIEB_PATH/"data/UIEB/All_Results"/}
+
+cd /home/allen/workspace/seamamba/mmagic
 ```
 
 <div align="center">

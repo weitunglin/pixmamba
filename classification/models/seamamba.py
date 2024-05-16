@@ -1327,7 +1327,7 @@ if __name__ == "__main__":
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*6, ver='v16', d_state=12, dims=[36]*6, biattn_act_ratio=0.125).to('cuda')
+        model = VSSM(num_classes=img_channels, in_chans=img_channels, depths=[1]*6, ver='v16', d_state=10, dims=[36]*6, biattn_act_ratio=0.25).to('cuda')
         print(model)
         model = model.half()
         int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
