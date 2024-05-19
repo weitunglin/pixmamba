@@ -512,8 +512,10 @@ class SS2D(nn.Module):
         self.forward_core = self.forward_corev0
         # self.forward_core = self.forward_corev0_seq
         # self.forward_core = self.forward_corev1
-        if self.biattn:
+        if self.bidir:
             self.forward_core = self.forward_corev2
+        if self.bidir == 'a':
+            self.forward_core = self.forward_corev2a
 
         self.out_norm = nn.LayerNorm(self.d_inner)
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
@@ -576,6 +578,83 @@ class SS2D(nn.Module):
         D._no_weight_decay = True
         return D
     
+    # pixmamba seamamba
+    def forward_corev2a(self, x: torch.Tensor):
+        self.selective_scan = selective_scan_fn
+
+        B, C, H, W = x.shape
+        L = H * W
+
+        if self.bidir:
+            K = 2
+        else:
+            K = 4
+
+        # x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
+        x_hwwh = x.view(B, 1, -1, L)
+
+        if self.bidir:
+            xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
+            # xs = x_hwwh
+        else:
+            xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
+
+        x_dbl = torch.einsum("b k d l, k c d -> b k c l", xs.view(B, K, -1, L), self.x_proj_weight)
+        # x_dbl = x_dbl + self.x_proj_bias.view(1, K, -1, 1)
+        dts, Bs, Cs = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=2)
+        dts = torch.einsum("b k r l, k d r -> b k d l", dts.view(B, K, -1, L), self.dt_projs_weight)
+
+        xs = xs.float().view(B, -1, L) # (b, k * d, l)
+        dts = dts.contiguous().float().view(B, -1, L) # (b, k * d, l)
+        Bs = Bs.float().view(B, K, -1, L) # (b, k, d_state, l)
+        Cs = Cs.float().view(B, K, -1, L) # (b, k, d_state, l)
+
+        Ds = self.Ds.float().view(-1) # (k * d)
+        As = -torch.exp(self.A_logs.float()).view(-1, self.d_state)  # (k * d, d_state)
+        dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
+
+        D, N = self.A_logs.shape
+
+        out_y = []
+        for i in range(K):
+            yi = self.selective_scan(
+                xs.view(B, K, -1, L)[:, i], dts.view(B, K, -1, L)[:, i],
+                As.view(K, -1, N)[i], Bs[:, i].unsqueeze(1), Cs[:, i].unsqueeze(1), Ds.view(K, -1)[i],
+                delta_bias=dt_projs_bias.view(K, -1)[i],
+                delta_softplus=True,
+            ).view(B, -1, L)
+            out_y.append(yi)
+
+        # biattn
+        if self.biattn:
+            out_y = [rearrange(self.attn(rearrange(out, 'b d l -> b l d')), 'b l d -> b d l') for out in out_y]
+
+        out_y = torch.stack(out_y, dim=1)
+        assert out_y.dtype == torch.float
+
+        if self.bidir == 'a' or self.bidir:
+            # inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
+            # wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            # invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            inv_y = torch.flip(out_y[:, 1], dims=[-1]).view(B, -1, L)
+            # print(out_y[:, 0].shape)
+            # print(inv_y.shape)
+            # print(self.d_inner)
+            y = out_y[:, 0] + inv_y
+
+            y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
+        else:
+            inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
+            wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            y = out_y[:, 0] + inv_y[:, 0] + wh_y + invwh_y
+
+            y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
+
+        y = self.out_norm(y).to(x.dtype)
+
+        return y
+
     # pixmamba seamamba
     def forward_corev2(self, x: torch.Tensor):
         self.selective_scan = selective_scan_fn
@@ -1049,7 +1128,12 @@ class VSSM(nn.Module):
             'pos_embed': False,
             'freq': False,
             'conv': False,
+            'p_conv': False,
+            'p_pixel': False,
         }
+
+        if 'bidir' in kwargs:
+            self.common_kwargs['bidir'] = kwargs['bidir']
 
         if 'biattn_act_ratio' in kwargs:
             self.common_kwargs['biattn_act_ratio'] = kwargs['biattn_act_ratio']
@@ -1066,7 +1150,7 @@ class VSSM(nn.Module):
         
         if 'last_skip' in kwargs:
             self.common_kwargs['last_skip'] = kwargs['last_skip']
-            self.alpha = nn.Parameter(torch.tensor(0.5), requires_grad=True)
+            self.alpha = nn.Parameter(torch.tensor(0.3), requires_grad=True)
         
         if 'freq' in kwargs:
             self.freq_branch = nn.Module(
@@ -1076,6 +1160,20 @@ class VSSM(nn.Module):
         if 'conv' in kwargs:
             self.common_kwargs['conv'] = kwargs['conv']
         
+        if 'p_conv' in kwargs:
+            self.common_kwargs['p_conv'] = kwargs['p_conv']
+            self.conv_layers = nn.ModuleList()
+            self.beta = nn.Parameter(torch.tensor(0.25), requires_grad=True)
+        
+        if 'p_pixel' in kwargs:
+            self.common_kwargs['p_pixel'] = kwargs['p_pixel']
+            self.pixel_layers = nn.ModuleList()
+            self.pre_pixel = PatchEmbed2D(patch_size=1, in_chans=in_chans, embed_dim=self.embed_dim//4,
+                norm_layer=norm_layer if patch_norm else None)
+            self.gamma = nn.Parameter(torch.tensor(0.25), requires_grad=True)
+
+        self.omaga = nn.Parameter(torch.tensor(0.25), requires_grad=True)
+
         print(self.common_kwargs, kwargs)
         
         if d_state is None:
@@ -1101,6 +1199,7 @@ class VSSM(nn.Module):
 
         # build encoder and bottleneck layers
         self.layers = nn.ModuleList()
+
         for i_layer in range(self.num_layers):
             if self.ver in ['v0']:
                 dim = int(dims[0] * 2 ** i_layer)
@@ -1124,10 +1223,29 @@ class VSSM(nn.Module):
             )
             self.layers.append(layer)
 
-            if self.common_kwargs['conv']:
-                self.layers.append(
+            if self.common_kwargs['p_conv']:
+                self.conv_layers.append(
                     Block(dim=dim)
                 )
+            
+            if self.common_kwargs['p_pixel']:
+                if i_layer % 2 == 1:
+                    self.pixel_layers.append(nn.Identity())
+                else:
+                    self.pixel_layers.append(
+                        VSSLayer(
+                            dim=dim//4,
+                            depth=depths[i_layer],
+                            d_state=d_state,
+                            drop=drop_rate,
+                            attn_drop=attn_drop_rate,
+                            drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
+                            norm_layer=norm_layer,
+                            downsample=downsample,
+                            use_checkpoint=use_checkpoint,
+                            **self.common_kwargs,
+                        )
+                    )
 
         # build decoder layers
         if self.common_kwargs['unet']:
@@ -1180,12 +1298,21 @@ class VSSM(nn.Module):
         else:
             if self.final_upsample == "expand_first":
                 print("---final upsample expand_first---")
-                self.up = FinalPatchExpand_X4(dim_scale=4,dim=self.embed_dim)
+
+                out_dim = self.embed_dim
+                if self.common_kwargs['p_conv']:
+                    out_dim += self.embed_dim
+                # if self.common_kwargs['p_pixel']:
+                #     out_dim += self.embed_dim // 2
+                if self.common_kwargs['last_skip']:
+                    out_dim += self.embed_dim
+                print(out_dim)
+                self.up = FinalPatchExpand_X4(dim_scale=4,dim=out_dim)
                 if self.common_kwargs['p8']:
                     self.up2 = PatchExpand(dim_scale=2, dim=self.embed_dim)
                     self.output = nn.Conv2d(in_channels=self.embed_dim//2,out_channels=self.num_classes,kernel_size=1,bias=False)
                 else:
-                    self.output = nn.Conv2d(in_channels=self.embed_dim,out_channels=self.num_classes,kernel_size=1,bias=False)
+                    self.output = nn.Conv2d(in_channels=out_dim+(self.embed_dim//4 if self.common_kwargs['p_pixel'] else 0),out_channels=self.num_classes,kernel_size=1,bias=False)
 
         self.apply(self._init_weights)
 
@@ -1214,10 +1341,17 @@ class VSSM(nn.Module):
     #Encoder and Bottleneck
     def forward_features(self, x):
         x_downsample = []
+        x0 = []
         if self.common_kwargs['residual'] or self.common_kwargs['last_skip']:
-            x0 = []
             x0.append(x)
         x = self.patch_embed(x)
+        
+        if self.common_kwargs['p_conv']:
+            conv_x = x
+        
+        if self.common_kwargs['p_pixel']:
+            pixel_x = x0[0]
+            pixel_x = self.pre_pixel(pixel_x)
 
         if self.common_kwargs['pos_embed']:
             b, h, w, c = x.shape
@@ -1240,15 +1374,27 @@ class VSSM(nn.Module):
                     x = x + x_downsample[num_layers - i_layer - 1]
                 x_downsample.append(x)
             x = layer(x)
+
+            if self.common_kwargs['p_conv']:
+                conv_x = self.conv_layers[i_layer](conv_x)
+            if self.common_kwargs['p_pixel']:
+                pixel_x = self.pixel_layers[i_layer](pixel_x)
             # print(f'x.shape {x.shape}')
         
         x = self.norm(x)  # B H W C
         if self.common_kwargs['last_skip']:
-            x = self.alpha * x0[1] + x
+            concat_list = [x0[1], x]
+            if self.common_kwargs['p_conv']:
+                concat_list.append(conv_x)
+            if self.common_kwargs['p_pixel']:
+                x0.append(pixel_x)
+            
+            x = torch.cat(concat_list, dim=-1)
+            # x = self.alpha * x0[1] + x
         if self.common_kwargs['residual']:
             return x, x_downsample, x0
         else:
-            return x, x_downsample
+            return x, x_downsample, x0
 
     # def forward_backbone(self, x):
     #     x = self.patch_embed(x)
@@ -1282,6 +1428,9 @@ class VSSM(nn.Module):
                     x = x.view(B, 4*H, 4*W, -1)
                 else:
                     x = self.up2(x)
+                
+                if self.common_kwargs['p_pixel']:
+                    x = torch.cat((x, x0), dim=-1)
             x = x.permute(0, 3, 1, 2)  # B,C,H,W
             x = self.output(x)
 
@@ -1291,13 +1440,16 @@ class VSSM(nn.Module):
         if self.common_kwargs['residual']:
             x,x_downsample,x0 = self.forward_features(x)
         else:
-            x,x_downsample = self.forward_features(x)
+            x,x_downsample,x0 = self.forward_features(x)
 
         # print(f'x.shape {x.shape}')
         if self.common_kwargs['unet']:
             x = self.forward_up_features(x,x_downsample)
 
-        x = self.up_x4(x)
+        if self.common_kwargs['p_pixel']:
+            x = self.up_x4(x, x0[-1])
+        else:
+            x = self.up_x4(x)
         return x
 
     def __call__(self, *args, **kwds):
@@ -1429,15 +1581,19 @@ if __name__ == "__main__":
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
         model = VSSM(num_classes=img_channels, in_chans=img_channels,
-                    depths=[1]*2,
-                    dims=[96]*2,
-                    d_state=24,
+                    depths=[1]*4,
+                    dims=[96]*4,
+                    d_state=16,
                     biattn_act_ratio=0.125,
                     residual=False,
                     last_skip=True,
                     pixel=False,
                     pos_embed=True,
-                    conv=True,
+                    conv=False,
+                    p_conv=False,
+                    p_pixel=True,
+                    biattn=True,
+                    bidir='a',
                     ver='v16').to('cuda')
         print(model)
         model = model.half()
