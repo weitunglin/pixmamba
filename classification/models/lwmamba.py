@@ -922,7 +922,8 @@ class VSSM(nn.Module):
             x = self.output(x)
             
         return x
-    def forward(self, x):
+
+    def forward_(self, x):
         x,x_downsample = self.forward_features(x)
         x = self.forward_up_features(x,x_downsample)
         x = self.up_x4(x)

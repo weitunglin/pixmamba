@@ -5,6 +5,7 @@ import torch
 
 from .vmamba import VSSM
 from .seamamba import VSSM
+from .lwmamba import VSSM
 try:
     from .heat import HeatM
 except:
