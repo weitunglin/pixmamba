@@ -237,6 +237,14 @@ class gMlp(nn.Module):
         x = self.drop(x)
         return x
 
+class Permute(nn.Module):
+    def __init__(self, *args):
+        super().__init__()
+        self.args = args
+    
+    def forward(self, x):
+        return x.permute(self.args)
+
 class BiAttn(nn.Module):
     def __init__(self, in_channels, act_ratio=0.125, act_fn=nn.GELU, gate_fn=nn.Sigmoid):
         super().__init__()
@@ -263,6 +271,7 @@ class BiAttn(nn.Module):
 
         attn = c_attn * s_attn  # [B, N, C]
         return ori_x * attn
+
 class PatchEmbed2D(nn.Module):
     r""" Image to Patch Embedding
     Args:
@@ -351,7 +360,7 @@ class FinalPatchExpand_X4(nn.Module):
         super().__init__()
         self.dim = dim
         self.dim_scale = dim_scale
-        self.expand = nn.Linear(dim, 16*dim, bias=False)
+        self.expand = nn.Linear(dim, (dim_scale**2)*dim, bias=False)
         self.output_dim = dim 
         self.norm = norm_layer(self.output_dim)
 
@@ -407,29 +416,56 @@ class SS2D(nn.Module):
         )
         self.act = nn.SiLU()
 
-        self.x_proj = (
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-        )
-        self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=4, N, inner)
-        del self.x_proj
+        self.bi_scan = kwargs['bi_scan'] if 'bi_scan' in kwargs else None
+        self.merge_attn = kwargs['merge_attn'] if 'merge_attn' in kwargs else None
+        # self.merge_attn_ratio = kwargs['merge_attn_ratio'] if 'merge_attn_ratio' in kwargs and isinstance(kwargs['merge_attn_ratio'], float) else None
 
-        self.dt_projs = (
-            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
-            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
-            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
-            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
-        )
-        self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=4, inner, rank)
-        self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=4, inner)
-        del self.dt_projs
+        if self.merge_attn:
+            self.attn = BiAttn(self.d_inner)
+
+        if not self.bi_scan:
+            self.x_proj = (
+                nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+                nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+                nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+                nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+            )
+            self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=4, N, inner)
+            del self.x_proj
+
+            self.dt_projs = (
+                self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+                self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+                self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+                self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+            )
+            self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=4, inner, rank)
+            self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=4, inner)
+            del self.dt_projs
         
-        self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
-        self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
+            self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
+            self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
+        else:
+            self.x_proj = (
+                nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+                nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            )
+            self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=2, N, inner)
+            del self.x_proj
 
-        self.forward_core = self.forward_corev0
+            self.dt_projs = (
+                self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+                self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+            )
+            self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=2, inner, rank)
+            self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=2, inner)
+            del self.dt_projs
+
+            self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=2, merge=True) # (K=2, D, N)
+            self.Ds = self.D_init(self.d_inner, copies=2, merge=True) # (K=2, D, N)
+
+        self.forward_core = self.forward_corev2
+        # self.forward_core = self.forward_corev0
         # self.forward_core = self.forward_corev0_seq
         # self.forward_core = self.forward_corev1
 
@@ -492,6 +528,76 @@ class SS2D(nn.Module):
         D = nn.Parameter(D)  # Keep in fp32
         D._no_weight_decay = True
         return D
+    
+    # pixmamba seamamba
+    def forward_corev2(self, x: torch.Tensor):
+        self.selective_scan = selective_scan_fn
+
+        B, C, H, W = x.shape
+        L = H * W
+
+        if self.bi_scan:
+            K = 2
+        else:
+            K = 4
+
+        x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
+
+        if self.bi_scan:
+            xs = x_hwwh
+        else:
+            xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
+
+        x_dbl = torch.einsum("b k d l, k c d -> b k c l", xs.view(B, K, -1, L), self.x_proj_weight)
+        # x_dbl = x_dbl + self.x_proj_bias.view(1, K, -1, 1)
+        dts, Bs, Cs = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=2)
+        dts = torch.einsum("b k r l, k d r -> b k d l", dts.view(B, K, -1, L), self.dt_projs_weight)
+
+        xs = xs.float().view(B, -1, L) # (b, k * d, l)
+        dts = dts.contiguous().float().view(B, -1, L) # (b, k * d, l)
+        Bs = Bs.float().view(B, K, -1, L) # (b, k, d_state, l)
+        Cs = Cs.float().view(B, K, -1, L) # (b, k, d_state, l)
+
+        Ds = self.Ds.float().view(-1) # (k * d)
+        As = -torch.exp(self.A_logs.float()).view(-1, self.d_state)  # (k * d, d_state)
+        dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
+
+        D, N = self.A_logs.shape
+
+        out_y = []
+        for i in range(K):
+            yi = self.selective_scan(
+                xs.view(B, K, -1, L)[:, i], dts.view(B, K, -1, L)[:, i],
+                As.view(K, -1, N)[i], Bs[:, i].unsqueeze(1), Cs[:, i].unsqueeze(1), Ds.view(K, -1)[i],
+                delta_bias=dt_projs_bias.view(K, -1)[i],
+                delta_softplus=True,
+            ).view(B, -1, L)
+            out_y.append(yi)
+
+        if self.merge_attn:
+            out_y = [rearrange(self.attn(rearrange(out, 'b d l -> b l d')), 'b l d -> b d l') for out in out_y]
+
+        out_y = torch.stack(out_y, dim=1)
+        assert out_y.dtype == torch.float
+
+        if self.bi_scan:
+            # inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
+            wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            # invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            y = out_y[:, 0] + wh_y
+
+            y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
+        else:
+            inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
+            wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            y = out_y[:, 0] + inv_y[:, 0] + wh_y + invwh_y
+
+            y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
+
+        y = self.out_norm(y).to(x.dtype)
+
+        return y
 
     def forward_corev0(self, x: torch.Tensor):
         self.selective_scan = selective_scan_fn
@@ -696,6 +802,7 @@ class VSSLayer(nn.Module):
                 norm_layer=norm_layer,
                 attn_drop_rate=attn_drop,
                 d_state=d_state,
+                **kwargs,
             )
             for i in range(depth)])
         
@@ -761,6 +868,7 @@ class VSSLayer_up(nn.Module):
                 norm_layer=norm_layer,
                 attn_drop_rate=attn_drop,
                 d_state=d_state,
+                **kwargs,
             )
             for i in range(depth)])
         
@@ -791,6 +899,45 @@ class VSSLayer_up(nn.Module):
         return x
 
 
+class Block(nn.Module):
+    r""" ConvNeXt Block. There are two equivalent implementations:
+    (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
+    (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
+    We use (2) as we find it slightly faster in PyTorch
+    
+    Args:
+        dim (int): Number of input channels.
+        drop_path (float): Stochastic depth rate. Default: 0.0
+        layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
+    """
+    def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6):
+        super().__init__()
+        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
+        self.norm = nn.LayerNorm(dim, eps=1e-6)
+        self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
+        self.act = nn.GELU()
+        self.pwconv2 = nn.Linear(4 * dim, dim)
+        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), 
+                                    requires_grad=True) if layer_scale_init_value > 0 else None
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+    def forward(self, x):
+        input = x
+        # x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
+        x = self.dwconv(x)
+        x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
+        x = self.norm(x)
+        x = self.pwconv1(x)
+        x = self.act(x)
+        x = self.pwconv2(x)
+        if self.gamma is not None:
+            x = self.gamma * x
+        x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
+
+        x = input + self.drop_path(x)
+        return x
+
+
 class VSSM(nn.Module):
     def __init__(self, patch_size=4, in_chans=3, num_classes=3, depths=[2, 2, 9, 2], 
                  dims=[96, 192, 384, 768], d_state=16, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
@@ -806,8 +953,43 @@ class VSSM(nn.Module):
         self.num_features_up = int(dims[0] * 2)
         self.dims = dims
         self.final_upsample = final_upsample
+        self.patch_size = patch_size
 
-        self.patch_embed = PatchEmbed2D(patch_size=patch_size, in_chans=in_chans, embed_dim=self.embed_dim,
+        # lwmamba kwargs
+        kws = ['pixel_branch', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine']
+        self.kw = dict()
+        for k in kws:
+            self.kw[k] = None
+        for k in kwargs:
+            if k in kws:
+                self.kw[k] = kwargs[k]
+        
+        if self.kw['pos_embed'] is not None:
+            # TODO pos_embed size
+            pos_embed_size = 256 // 8
+            self.pos_embed = nn.Parameter(torch.zeros(1, self.embed_dim, pos_embed_size, pos_embed_size))
+            trunc_normal_(self.pos_embed)
+        
+        if self.kw['pixel_branch'] is not None:
+            self.pixel_layers = nn.ModuleList()
+            self.pixel_branch_dim = self.embed_dim // 4
+            self.pre_pixel = PatchEmbed2D(patch_size=1, in_chans=in_chans, embed_dim=self.pixel_branch_dim,
+                norm_layer=norm_layer if patch_norm else None)
+            self.post_pixel = nn.Sequential(
+                Permute(0, 3, 1, 2),
+                nn.Conv2d(in_channels=self.pixel_branch_dim, out_channels=self.num_classes, kernel_size=1, stride=1),
+                Permute(0, 2, 3, 1),
+                nn.LayerNorm(self.num_classes),
+                Permute(0, 3, 1, 2),
+            )
+            
+        if self.kw['final_refine'] is not None:
+            self.final_refine = nn.Sequential(
+                Block(dim=self.num_classes),
+                Block(dim=self.num_classes)
+            )
+
+        self.patch_embed = PatchEmbed2D(patch_size=self.patch_size, in_chans=in_chans, embed_dim=self.embed_dim,
             norm_layer=norm_layer if patch_norm else None)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -826,8 +1008,27 @@ class VSSM(nn.Module):
                 norm_layer=norm_layer,
                 downsample=PatchMerging2D if (i_layer < self.num_layers - 1) else None,
                 use_checkpoint=use_checkpoint,
+                **self.kw,
             )
             self.layers.append(layer)
+
+            if self.kw['pixel_branch']:
+                if i_layer % 2 == 0:
+                    self.pixel_layers.append(
+                        VSSLayer(
+                            dim=self.pixel_branch_dim,
+                            depth=depths[i_layer],
+                            d_state=math.ceil(dims[0] / 6) if d_state is None else d_state,
+                            drop=drop_rate,
+                            attn_drop=attn_drop_rate,
+                            drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
+                            norm_layer=norm_layer,
+                            downsample=None,
+                            **self.kw,
+                        )
+                    )
+                else:
+                    self.pixel_layers.append(nn.Identity())
 
         # build decoder layers
         self.layers_up = nn.ModuleList()
@@ -848,6 +1049,7 @@ class VSSM(nn.Module):
                     norm_layer=norm_layer,
                     upsample=PatchExpand if (i_layer < self.num_layers - 1) else None,
                     use_checkpoint=use_checkpoint,
+                    **self.kw,
                 )
             self.layers_up.append(layer_up)
             self.concat_back_dim.append(concat_linear)
@@ -856,13 +1058,14 @@ class VSSM(nn.Module):
         self.norm_up = norm_layer(self.embed_dim)
 
         if self.final_upsample == "expand_first":
-            print("---final upsample expand_first---")
-            self.up = FinalPatchExpand_X4(dim_scale=4,dim=self.embed_dim)
-            self.output = nn.Conv2d(in_channels=self.embed_dim,out_channels=self.num_classes,kernel_size=1,bias=False)
+            concat_dim = self.embed_dim
+            self.up = FinalPatchExpand_X4(dim_scale=self.patch_size,dim=self.embed_dim)
+            self.output = nn.Conv2d(in_channels=concat_dim,out_channels=self.num_classes,kernel_size=1,bias=False)
 
         self.apply(self._init_weights)
 
-
+    def __call__(self, *args, **kwargs):
+        return self.forward_(*args, **kwargs)
 
     def _init_weights(self, m: nn.Module):
         """
@@ -881,24 +1084,37 @@ class VSSM(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+    
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {"pos_embed"}
 
     #Encoder and Bottleneck
     def forward_features(self, x):
+        pixel_x = x
         x = self.patch_embed(x)
 
+        if self.kw['pos_embed']:
+            b, h, w, c = x.shape
+            pos = torch.nn.functional.interpolate(self.pos_embed, (h, w), mode='bilinear')
+            x = x + pos.permute(0, 2, 3, 1)
+        
+        if self.kw['pixel_branch']:
+            pixel_x = self.pre_pixel(pixel_x)
+
         x_downsample = []
-        for layer in self.layers:
+        for i_layer, layer in enumerate(self.layers):
             x_downsample.append(x)
             x = layer(x)
+
+            if self.kw['pixel_branch']:
+                pixel_x = self.pixel_layers[i_layer](pixel_x)
+
         x = self.norm(x)  # B H W C
-        return x, x_downsample
 
-    # def forward_backbone(self, x):
-    #     x = self.patch_embed(x)
-
-    #     for layer in self.layers:
-    #         x = layer(x)
-    #     return x
+        if self.kw['pixel_branch']:
+            pixel_x = self.post_pixel(pixel_x)
+        return x, x_downsample, pixel_x
 
     #Dencoder and Skip connection
     def forward_up_features(self, x, x_downsample):
@@ -913,22 +1129,29 @@ class VSSM(nn.Module):
         x = self.norm_up(x)  # B H W C
   
         return x
-    def up_x4(self, x):
+
+    def up_x4(self, x, pixel_x):
         if self.final_upsample=="expand_first":
             B,H,W,C = x.shape
             x = self.up(x)
-            x = x.view(B, 4*H, 4*W, -1)
+            x = x.view(B, self.patch_size*H, self.patch_size*W, -1)
             x = x.permute(0, 3, 1, 2)  # B,C,H,W
             x = self.output(x)
             
         return x
 
     def forward_(self, x):
-        x,x_downsample = self.forward_features(x)
+        x0 = x
+        x,x_downsample,pixel_x = self.forward_features(x)
         x = self.forward_up_features(x,x_downsample)
-        x = self.up_x4(x)
+        x = self.up_x4(x, pixel_x)
+        if self.kw['last_skip']:
+            x = x0 + x
+        if self.kw['pixel_branch']:
+            x = x + pixel_x
+        if self.kw['final_refine']:
+            x = self.final_refine(x)
         return x
-
 
     def flops(self, shape=(3, 224, 224)):
         # shape = self.__input_shape__[1:]
@@ -944,12 +1167,14 @@ class VSSM(nn.Module):
         model.cuda().eval()
 
         input = torch.randn((1, *shape), device=next(model.parameters()).device)
-        params = parameter_count(model)[""]
+        params = parameter_count(model)
+        # print(params)
+        params = params[""]
         Gflops, unsupported = flop_count(model=model, inputs=(input,), supported_ops=supported_ops)
 
         del model, input
         # return sum(Gflops.values()) * 1e9
-        return f"params {params} GFLOPs {sum(Gflops.values())}"
+        return f"params {params*1e-6:.3f} M, FLOPs {sum(Gflops.values()):.3f} G"
 
 
 
@@ -987,8 +1212,8 @@ def check_vssm_equals_vmambadp():
 
 # compatible with openmmlab
 class Backbone_VSSM(VSSM):
-    def __init__(self, patch_size=4, in_chans=3, embed_dim=96, depths=[2, 2, 9, 2], mlp_ratio=4., patch_norm=True, num_classes=4, drop_rate=0.0, drop_path_rate=0.2, **kwargs):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         # self.load_pretrained(pretrained)
 
     def load_pretrained(self, config):
@@ -1035,15 +1260,27 @@ class Backbone_VSSM(VSSM):
         return logits
 
 
-
 if __name__ == "__main__":
     # check_vssm_equals_vmambadp()
     img_channels = 3
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        model = VSSM(depths=[2,2,3,2], dims=96).to('cuda')
-        print(model)
+        # v0 params 19121568 GFLOPs 7.209799008
+        # model = VSSM(depths=[2,2,2,2], dims=96).to('cuda')
+
+        # v1 params 2800845 GFLOPs 6.593584807999999
+        # model = VSSM(depths=[1,1,1,1], dims=48, pixel_branch=True, bi_scan=True, final_attn=True, pos_embed=True, merge_attn=True, last_skip=False, patch_size=2).to('cuda')
+
+        # params 11269536 GFLOPs 15.127577120000002
+        # model = VSSM(depths=[1,1,1,1], dims=96, patch_size=2).to('cuda')
+
+        # params 3045072 GFLOPs 4.883572632 (1,1,1,1)
+        # params 5204496 GFLOPs 8.879951664 (2,2,2,2)
+        # params 2711760 GFLOPs 3.7250875359999998 (1,1,1,1) bi_scan
+        model = VSSM(depths=[1,1,1,1], dims=48, patch_size=2, bi_scan=True, pixel_branch=True, final_refine=False, last_skip=False, merge_attn=True, pos_embed=True).to('cuda')
+
+        # model = VSSM(depths=[2,2,2,2], dims=96, pixel_branch=True, bi_scan=True, final_attn=True, pos_embed=True, merge_attn=True, last_skip=False, patch_size=2).to('cuda')
         model = model.half()
         int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
         out = model(int)
