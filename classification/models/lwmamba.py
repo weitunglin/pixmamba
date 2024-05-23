@@ -351,7 +351,7 @@ class PatchMerging2DConv(nn.Module):
         return x
 
 class PatchExpand(nn.Module):
-    def __init__(self, dim, dim_scale=2, norm_layer=nn.LayerNorm):
+    def __init__(self, dim, dim_scale=2, norm_layer=nn.LayerNorm, out_dim=None):
         super().__init__()
         self.dim = dim
         self.expand = nn.Linear(
@@ -367,21 +367,34 @@ class PatchExpand(nn.Module):
         return x
 
 class MambaPatchExpand(nn.Module):
-    def __init__(self, dim, dim_scale=2, norm_layer=nn.LayerNorm):
+    def __init__(self, dim, out_dim, dim_scale=2, norm_layer=nn.LayerNorm, **kwargs):
         super().__init__()
         self.dim = dim
-        self.expand = nn.Linear(
-            dim, 2*dim, bias=False) if dim_scale == 2 else nn.Identity()
-        self.norm = norm_layer(dim // dim_scale)
-        self.mu_layer = VSSLayer(dim=dim, depth=1, norm_layer=norm_layer, d_state=12, bi_scan=True, merge_attn=True)
+        # self.expand = nn.Linear(
+        #     dim, dim*2, bias=False) if dim_scale == 2 else nn.Identity()
+        # self.norm = norm_layer(dim // dim_scale)
+
+        self.reduce_ratio = 1
+        if self.reduce_ratio != 1:
+            self.reduction = nn.Linear(dim, dim//self.reduce_ratio)
+        self.mu_layer = VSSLayer(dim=dim//self.reduce_ratio, depth=1, norm_layer=norm_layer, d_state=16, bi_scan=True, merge_attn=True, **kwargs)
+        self.up = nn.ConvTranspose2d(in_channels=dim//self.reduce_ratio, out_channels=out_dim, kernel_size=2, stride=2)
 
     def forward(self, x): # (B, H, W, C) -> (B, 2H, 2W, C/2)
-        # TODO
+        if self.reduce_ratio != 1:
+            x = self.reduction(x)
         x = self.mu_layer(x)
-        x = self.expand(x) # B H W C -> B H W 2C
-        B, H, W, C = x.shape
-        x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//4)
-        x= self.norm(x)
+        x = x.permute(0, 3, 1, 2)
+        x = self.up(x)
+        x = x.permute(0, 2, 3, 1)
+        # x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//4)
+        # x = self.reduction(x)
+        # x = 
+
+        # x = self.expand(x) # B H W C -> B H W 2C
+        # B, H, W, C = x.shape
+        # x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//4)
+        # x = self.norm(x)
 
         return x
 
@@ -432,20 +445,22 @@ class SS2D(nn.Module):
         # self.d_state = math.ceil(self.d_model / 6) if d_state == "auto" else d_model # 20240109
         self.d_conv = d_conv
         self.expand = expand
+        if self.expand is None:
+            self.expand = 2
 
-        if True:
+        if 'constrain_ss2d_expand' in kwargs and kwargs['constrain_ss2d_expand']:
             if d_model >= 384:
                 self.expand = 1
 
         self.d_inner = int(self.expand * self.d_model)
         self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
 
-        print('ss2d')
-        print(d_model, d_state, self.expand)
+        self.no_act_branch = kwargs['no_act_branch'] if 'no_act_branch' in kwargs and kwargs['no_act_branch'] else False
+        if self.no_act_branch:
+            self.in_proj = nn.Linear(self.d_model, self.d_inner, bias=bias, **factory_kwargs)
+        else:
+            self.in_proj = nn.Linear(self.d_model, self.d_inner*2, bias=bias, **factory_kwargs)
 
-
-
-        self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
         self.conv2d = nn.Conv2d(
             in_channels=self.d_inner,
             out_channels=self.d_inner,
@@ -462,7 +477,7 @@ class SS2D(nn.Module):
         # self.merge_attn_ratio = kwargs['merge_attn_ratio'] if 'merge_attn_ratio' in kwargs and isinstance(kwargs['merge_attn_ratio'], float) else None
 
         if self.merge_attn:
-            self.attn = BiAttn(self.d_inner)
+            self.attn = BiAttn(self.d_inner, act_ratio=.2)
 
         if not self.bi_scan:
             self.x_proj = (
@@ -585,7 +600,10 @@ class SS2D(nn.Module):
         x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
 
         if self.bi_scan:
-            xs = x_hwwh
+            if self.bi_scan == 'xs':
+                xs = torch.stack([x.view(B, -1, L), torch.flip(x.view(B, -1, L), dims=[-1])], dim=1)
+            else:
+                xs = x_hwwh
         else:
             xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
 
@@ -622,10 +640,13 @@ class SS2D(nn.Module):
         assert out_y.dtype == torch.float
 
         if self.bi_scan:
-            # inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
-            wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-            # invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-            y = out_y[:, 0] + wh_y
+            if self.bi_scan == 'xs':
+                inv_y = torch.flip(out_y[:, 1], dims=[-1]).view(B, -1, L)
+                y = out_y[:, 0] + inv_y
+            else:
+                wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+                # invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+                y = out_y[:, 0] + wh_y
 
             y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
         else:
@@ -774,13 +795,17 @@ class SS2D(nn.Module):
     def forward(self, x: torch.Tensor, **kwargs):
         B, H, W, C = x.shape
 
-        xz = self.in_proj(x)
-        x, z = xz.chunk(2, dim=-1) # (b, h, w, d)
+        if self.no_act_branch:
+            x = self.in_proj(x)
+        else:
+            xz = self.in_proj(x)
+            x, z = xz.chunk(2, dim=-1) # (b, h, w, d)
 
         x = x.permute(0, 3, 1, 2).contiguous()
         x = self.act(self.conv2d(x)) # (b, d, h, w)
         y = self.forward_core(x)
-        y = y * F.silu(z)
+        if not self.no_act_branch:
+            y = y * F.silu(z)
         out = self.out_proj(y)
         if self.dropout is not None:
             out = self.dropout(out)
@@ -929,11 +954,15 @@ class VSSLayer_up(nn.Module):
             self.apply(_init_weights)
 
         if upsample is not None:
+            init = False
             if kwargs['mamba_up']:
                 self.upsample = upsample(dim, upsample_out_dim)
+                init = True
             if kwargs['unet_up']:
                 self.upsample = Up(dim, upsample_out_dim)
-            else:
+                init = True
+
+            if not init:
                 self.upsample = PatchExpand(dim, dim_scale=2, norm_layer=nn.LayerNorm)
         else:
             self.upsample = upsample
@@ -948,10 +977,10 @@ class VSSLayer_up(nn.Module):
                 x = blk(x)
         
         if self.upsample is not None:
-            if self.kw['unet_up']:
-                x = self.upsample(x, x2 if self.kw['unet_up'] else None)
-            else:
-                x = self.upsample(x)
+            # if self.kw['unet_up']:
+            #     x = self.upsample(x, x2 if self.kw['unet_up'] else None)
+            # else:
+            x = self.upsample(x)
 
         return x
 
@@ -1043,21 +1072,10 @@ class Up(nn.Module):
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         else:
             self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = DoubleConv(in_channels, out_channels)
+            self.conv = DoubleConv(in_channels // 2, out_channels)
 
-    def forward(self, x1, x2):
-        x1 = self.up(x1.permute(0, 3, 1, 2))
-        # input is CHW
-        x2 = x2.permute(0, 3, 1, 2)
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([x2, x1], dim=1)
+    def forward(self, x1):
+        x = self.up(x1.permute(0, 3, 1, 2))
         return self.conv(x).permute(0, 2, 3, 1)
 
 
@@ -1085,7 +1103,7 @@ class VSSM(nn.Module):
 
 
         # lwmamba kwargs
-        kws = ['pixel_branch', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand']
+        kws = ['pixel_branch', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
         self.kw = dict()
         for k in kws:
             self.kw[k] = None
@@ -1101,24 +1119,16 @@ class VSSM(nn.Module):
         
         if self.kw['pixel_branch'] is not None:
             self.pixel_layers = nn.ModuleList()
-            self.pixel_branch_dim = self.embed_dim // 4
+            self.pixel_branch_dim = self.embed_dim // 8
             self.pre_pixel = PatchEmbed2D(patch_size=1, in_chans=in_chans, embed_dim=self.pixel_branch_dim,
                 norm_layer=norm_layer if patch_norm else None)
             self.post_pixel = nn.Sequential(
                 Permute(0, 3, 1, 2),
-                nn.Conv2d(in_channels=self.pixel_branch_dim, out_channels=self.num_classes, kernel_size=1, stride=1),
-                Permute(0, 2, 3, 1),
-                nn.LayerNorm(self.num_classes),
-                Permute(0, 3, 1, 2),
+                DoubleConv(in_channels=self.pixel_branch_dim, out_channels=self.num_classes),
             )
             
         if self.kw['final_refine'] is not None:
             self.final_refine = nn.Sequential(
-                Block(dim=self.num_classes),
-                Block(dim=self.num_classes),
-                Block(dim=self.num_classes),
-                Block(dim=self.num_classes),
-                Block(dim=self.num_classes),
                 Block(dim=self.num_classes),
             )
 
@@ -1164,7 +1174,7 @@ class VSSM(nn.Module):
                         VSSLayer(
                             dim=self.pixel_branch_dim,
                             depth=depths[i_layer],
-                            d_state=math.ceil(dims[0] / 6) if d_state is None else d_state,
+                            d_state=12,
                             drop=drop_rate,
                             attn_drop=attn_drop_rate,
                             drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
@@ -1193,8 +1203,10 @@ class VSSM(nn.Module):
             if i_layer ==0 :
                 if self.kw['unet_up']:
                     layer_up = patch_expand(in_channels=dim,out_channels=dim)
+                elif self.kw['mamba_up']:
+                    layer_up = patch_expand(dim=dim,out_dim=dim//2)
                 else:
-                    layer_up = patch_expand(dim=dim, dim_scale=2, norm_layer=norm_layer)
+                    layer_up = patch_expand(dim=dim, dim_scale=1, norm_layer=norm_layer, out_dim=dim)
                 # layer_up = MambaPatchExpand(dim=dim, dim_scale=2, norm_layer=norm_layer)
                 # layer_up = MambaPatchExpand(dim=dim, dim_scale=2, norm_layer=norm_layer)
             else:
@@ -1281,17 +1293,17 @@ class VSSM(nn.Module):
     def forward_up_features(self, x, x_downsample):
         for inx, layer_up in enumerate(self.layers_up):
             if inx == 0:
-                if self.kw['unet_up']:
-                    x = layer_up(x, x_downsample[len(self.layers_up)-1-inx])
-                else:
-                    x = layer_up(x)
+                # if self.kw['unet_up']:
+                #     x = layer_up(x)
+                # else:
+                x = layer_up(x)
             else:
-                if self.kw['unet_up']:
-                    x = layer_up(x, x_downsample[len(self.layers_up)-1-inx])
-                else:
-                    x = torch.cat([x,x_downsample[len(self.layers_up)-1-inx]],-1)
-                    x = self.concat_back_dim[inx](x)
-                    x = layer_up(x)
+                # if self.kw['unet_up']:
+                #     x = layer_up(x)
+                # else:
+                x = torch.cat([x,x_downsample[len(self.layers_up)-1-inx]],-1)
+                x = self.concat_back_dim[inx](x)
+                x = layer_up(x)
 
         x = self.norm_up(x)  # B H W C
   
@@ -1446,20 +1458,22 @@ if __name__ == "__main__":
         # params 3045072 GFLOPs 4.883572632 (1,1,1,1)
         # params 5204496 GFLOPs 8.879951664 (2,2,2,2)
         # params 2711760 GFLOPs 3.7250875359999998 (1,1,1,1) bi_scan
-        model = VSSM(depths=[1]*4,
-                dims=96,
-                pixel_branch=True,
-                bi_scan=True,
-                final_refine=False,
-                merge_attn=True,
-                pos_embed=True,
-                last_skip=False,
-                patch_size=4,
-                mamba_up=True,
-                unet_down=False,
-                unet_up=False,
-                conv_down=False,
-                ).to('cuda')
+        model = VSSM(
+            depths=[1]*3,
+            dims=96,
+            pixel_branch=True,
+            bi_scan=False,
+            final_refine=False,
+            merge_attn=True,
+            pos_embed=True,
+            last_skip=True,
+            patch_size=4,
+            mamba_up=True,
+            unet_down=False,
+            unet_up=False,
+            conv_down=False,
+            no_act_branch=True,
+            ).to('cuda')
 
         # model = VSSM(depths=[2,2,2,2], dims=96, pixel_branch=True, bi_scan=True, final_attn=True, pos_embed=True, merge_attn=True, last_skip=False, patch_size=2).to('cuda')
         model = model.half()
