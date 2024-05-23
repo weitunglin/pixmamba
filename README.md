@@ -6,15 +6,15 @@
 
 export UIEB_BASE=/home/allen/workspace/UIE_Benckmark
 export UIEB_PATH=${UIEB_BASE}/data/UIEB/All_Results
-export MODEL_VER=v32
-export CONFIG_PATH=configs/mambauie/${MODEL_VER}.py
-export EXP_NAME=seamamba_uieb_${MODEL_VER}
-export CKPT_ITER=_18775
+export MODEL_VER=v26
+export CONFIG_PATH=configs/lwmamba/${MODEL_VER}.py
+export EXP_NAME=lwmamba_uieb_${MODEL_VER}
+export CKPT_ITER=_65100
 export CKPT_PATH=work_dirs/${EXP_NAME}/iter${CKPT_ITER}.pth
 
 PORT=29504 WANDB_MODE=offline bash ./tools/dist_test.sh $CONFIG_PATH $CKPT_PATH 1 --work-dir work_dirs/${EXP_NAME}/test
 
-export RUN_NAME=20240517_230047
+export RUN_NAME=20240523_202434
 rm -r ${UIEB_PATH}/${EXP_NAME}/T90
 mkdir -p ${UIEB_PATH}/${EXP_NAME}/T90
 cp -r work_dirs/${EXP_NAME}/test/val/${RUN_NAME}/vis_data/vis_image/*.png ${UIEB_PATH}/${EXP_NAME}/T90
@@ -23,12 +23,22 @@ cd ${UIEB_BASE} && python evaluate_UIEB.py --method_name ${EXP_NAME} --folder T9
 
 cd /home/allen/workspace/seamamba/mmagic
 
+export RUN_NAME=20240523_202434
 rm -r ${UIEB_PATH}/${EXP_NAME}/C60
 mkdir -p ${UIEB_PATH}/${EXP_NAME}/C60
 cp -r work_dirs/${EXP_NAME}/test/${RUN_NAME}/vis_data/vis_image/*.png ${UIEB_PATH}/${EXP_NAME}/C60
 cd ${UIEB_PATH}/${EXP_NAME}/C60 && for f in *.png ; do mv -- "$f" "${f/$CKPT_ITER/}" ; done
-cd ${UIEB_BASE} && python evaluate_UIEB.py --method_name ${EXP_NAME} --folder C90
+cd ${UIEB_BASE} && python evaluate_UIEB.py --method_name ${EXP_NAME} --folder C60
 
+cd /home/allen/workspace/seamamba/mmagic
+
+export RUN_NAME=20240523_221027
+rm -rf ${UIEB_PATH}/${EXP_NAME}/UCCS
+mkdir -p ${UIEB_PATH}/${EXP_NAME}/UCCS
+cp -r work_dirs/${EXP_NAME}/test/${RUN_NAME}/vis_data/vis_image/green_*.png ${UIEB_PATH}/${EXP_NAME}/UCCS
+cp -r work_dirs/${EXP_NAME}/test/${RUN_NAME}/vis_data/vis_image/blue_*.png ${UIEB_PATH}/${EXP_NAME}/UCCS
+cp -r work_dirs/${EXP_NAME}/test/${RUN_NAME}/vis_data/vis_image/bg_*.png ${UIEB_PATH}/${EXP_NAME}/UCCS
+cd ${UIEB_BASE} && python evaluate_UIEB.py --method_name ${EXP_NAME} --folder UCCS
 cd /home/allen/workspace/seamamba/mmagic
 ```
 
