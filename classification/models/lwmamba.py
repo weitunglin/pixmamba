@@ -379,6 +379,7 @@ class MambaPatchExpand(nn.Module):
             self.reduction = nn.Linear(dim, dim//self.reduce_ratio)
         self.mu_layer = VSSLayer(dim=dim//self.reduce_ratio, depth=1, norm_layer=norm_layer, d_state=16, bi_scan=True, merge_attn=True, **kwargs)
         self.up = nn.ConvTranspose2d(in_channels=dim//self.reduce_ratio, out_channels=out_dim, kernel_size=2, stride=2)
+        self.norm = nn.LayerNorm(out_dim)
 
     def forward(self, x): # (B, H, W, C) -> (B, 2H, 2W, C/2)
         if self.reduce_ratio != 1:
@@ -387,6 +388,7 @@ class MambaPatchExpand(nn.Module):
         x = x.permute(0, 3, 1, 2)
         x = self.up(x)
         x = x.permute(0, 2, 3, 1)
+        x = self.norm(x)
         # x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//4)
         # x = self.reduction(x)
         # x = 
@@ -1139,6 +1141,8 @@ class VSSM(nn.Module):
         if self.kw['pixel_branch'] is not None:
             self.pixel_layers = nn.ModuleList()
             self.pixel_branch_dim = self.embed_dim // 8
+            self.pixel_pos_embed = nn.Parameter(torch.zeros(1, self.pixel_branch_dim, pos_embed_size, pos_embed_size))
+            trunc_normal_(self.pixel_pos_embed)
             self.pre_pixel = PatchEmbed2D(patch_size=1, in_chans=in_chans, embed_dim=self.pixel_branch_dim,
                 norm_layer=norm_layer if patch_norm else None)
             self.post_pixel = nn.Sequential(
@@ -1188,6 +1192,8 @@ class VSSM(nn.Module):
 
             if self.kw['pixel_branch']:
                 if i_layer % 2 == 0:
+                    kw = copy.deepcopy(self.kw)
+                    kw.update({'bi_scan':False})
                     self.pixel_layers.append(
                         VSSLayer(
                             dim=self.pixel_branch_dim,
@@ -1198,7 +1204,7 @@ class VSSM(nn.Module):
                             drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                             norm_layer=norm_layer,
                             downsample=None,
-                            **self.kw,
+                            **kw,
                         )
                     )
                 else:
@@ -1278,7 +1284,7 @@ class VSSM(nn.Module):
     
     @torch.jit.ignore
     def no_weight_decay(self):
-        return {"pos_embed"}
+        return {"pos_embed", "pixel_pos_embed"}
 
     #Encoder and Bottleneck
     def forward_features(self, x):
@@ -1292,6 +1298,9 @@ class VSSM(nn.Module):
         
         if self.kw['pixel_branch']:
             pixel_x = self.pre_pixel(pixel_x)
+            _, h, w, c = pixel_x.shape
+            pos = torch.nn.functional.interpolate(self.pixel_pos_embed, (h, w), mode='bilinear')
+            pixel_x = pixel_x + pos.permute(0, 2, 3, 1)
 
         x_downsample = []
         for i_layer, layer in enumerate(self.layers):
@@ -1480,11 +1489,11 @@ if __name__ == "__main__":
             depths=[1]*3,
             dims=96,
             pixel_branch=True,
-            bi_scan=False,
-            final_refine=True,
+            bi_scan=True,
+            final_refine=False,
             merge_attn=True,
-            pos_embed=True,
-            last_skip=True,
+            pos_embed=False,
+            last_skip=False,
             patch_size=4,
             mamba_up=True,
             unet_down=False,
@@ -1498,4 +1507,4 @@ if __name__ == "__main__":
         int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
         out = model(int)
         print(out.shape)
-        print(model.flops((img_channels, 1280, 720)))
+        print(model.flops((img_channels, 256, 256)))
