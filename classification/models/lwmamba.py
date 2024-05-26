@@ -1226,7 +1226,7 @@ class VSSM(nn.Module):
             concat_linear = nn.Linear(concat_dim, dim) if i_layer > 0 else nn.Identity()
             if i_layer ==0 :
                 if self.kw['unet_up']:
-                    layer_up = patch_expand(in_channels=dim,out_channels=dim)
+                    layer_up = patch_expand(in_channels=dim,out_channels=dim//2)
                 elif self.kw['mamba_up']:
                     layer_up = patch_expand(dim=dim,out_dim=dim//2)
                 else:
@@ -1487,7 +1487,7 @@ if __name__ == "__main__":
         # params 2711760 GFLOPs 3.7250875359999998 (1,1,1,1) bi_scan
         model = VSSM(
             depths=[1]*3,
-            dims=96,
+            dims=128,
             pixel_branch=True,
             bi_scan=True,
             final_refine=False,
