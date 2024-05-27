@@ -18,15 +18,15 @@ custom_hooks = [
 
 export UIEB_BASE=/home/allen/workspace/UIE_Benckmark
 export UIEB_PATH=${UIEB_BASE}/data/UIEB/All_Results
-export MODEL_VER=v38
+export MODEL_VER=v40
 export CONFIG_PATH=configs/lwmamba/${MODEL_VER}.py
 export EXP_NAME=lwmamba_uieb_${MODEL_VER}
-export CKPT_ITER=_16425
+export CKPT_ITER=_32550
 export CKPT_PATH=work_dirs/${EXP_NAME}/iter${CKPT_ITER}.pth
 
 PORT=29504 WANDB_MODE=offline bash ./tools/dist_test.sh $CONFIG_PATH $CKPT_PATH 1 --work-dir work_dirs/${EXP_NAME}/test
 
-export RUN_NAME=20240526_111633
+export RUN_NAME=20240527_130743
 echo "Start evalutaing T90"
 rm -rf ${UIEB_PATH}/${EXP_NAME}/T90
 mkdir -p ${UIEB_PATH}/${EXP_NAME}/T90

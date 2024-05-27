@@ -1487,7 +1487,7 @@ if __name__ == "__main__":
         # params 2711760 GFLOPs 3.7250875359999998 (1,1,1,1) bi_scan
         model = VSSM(
             depths=[1]*3,
-            dims=128,
+            dims=76,
             pixel_branch=True,
             bi_scan=True,
             final_refine=False,
