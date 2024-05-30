@@ -1124,13 +1124,19 @@ class VSSM(nn.Module):
 
 
         # lwmamba kwargs
-        kws = ['pixel_branch', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
+        kws = ['pixel_branch', 'pixel_bi_scan', 'pixel_block_num', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
         self.kw = dict()
         for k in kws:
             self.kw[k] = None
         for k in kwargs:
             if k in kws:
                 self.kw[k] = kwargs[k]
+        
+        if self.kw['pixel_block_num'] is None:
+            self.kw['pixel_block_num'] = 1
+        
+        if self.kw['pixel_bi_scan'] is None:
+            self.kw['pixel_bi_scan'] = False
         
         if self.kw['pos_embed'] is not None:
             # TODO pos_embed size
@@ -1191,14 +1197,14 @@ class VSSM(nn.Module):
                 self.layers.append(layer)
 
             if self.kw['pixel_branch']:
-                if i_layer % 2 == 0:
+                if i_layer < self.kw['pixel_block_num']:
                     kw = copy.deepcopy(self.kw)
-                    kw.update({'bi_scan':False})
+                    kw.update({'bi_scan':self.kw['pixel_bi_scan']})
                     self.pixel_layers.append(
                         VSSLayer(
                             dim=self.pixel_branch_dim,
                             depth=depths[i_layer],
-                            d_state=12,
+                            d_state=16,
                             drop=drop_rate,
                             attn_drop=attn_drop_rate,
                             drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
@@ -1487,12 +1493,14 @@ if __name__ == "__main__":
         # params 2711760 GFLOPs 3.7250875359999998 (1,1,1,1) bi_scan
         model = VSSM(
             depths=[1]*3,
-            dims=76,
+            dims=128,
             pixel_branch=True,
+            pixel_block_num=3,
+            pixel_bi_scan=True,
             bi_scan=True,
             final_refine=False,
             merge_attn=True,
-            pos_embed=False,
+            pos_embed=True,
             last_skip=False,
             patch_size=4,
             mamba_up=True,
