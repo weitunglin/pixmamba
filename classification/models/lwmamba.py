@@ -1124,7 +1124,7 @@ class VSSM(nn.Module):
 
 
         # lwmamba kwargs
-        kws = ['pixel_branch', 'pixel_bi_scan', 'pixel_block_num', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
+        kws = ['pixel_branch', 'pixel_d_state', 'pixel_bi_scan', 'pixel_block_num', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
         self.kw = dict()
         for k in kws:
             self.kw[k] = None
@@ -1134,6 +1134,9 @@ class VSSM(nn.Module):
         
         if self.kw['pixel_block_num'] is None:
             self.kw['pixel_block_num'] = 1
+        
+        if self.kw['pixel_d_state'] is None:
+            self.kw['pixel_d_state'] = 16
         
         if self.kw['pixel_bi_scan'] is None:
             self.kw['pixel_bi_scan'] = False
@@ -1204,7 +1207,7 @@ class VSSM(nn.Module):
                         VSSLayer(
                             dim=self.pixel_branch_dim,
                             depth=depths[i_layer],
-                            d_state=16,
+                            d_state=self.kw['pixel_d_state'],
                             drop=drop_rate,
                             attn_drop=attn_drop_rate,
                             drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
@@ -1495,8 +1498,9 @@ if __name__ == "__main__":
             depths=[1]*3,
             dims=128,
             pixel_branch=True,
-            pixel_block_num=3,
-            pixel_bi_scan=True,
+            pixel_block_num=2,
+            pixel_bi_scan=False,
+            pixel_d_state=12,
             bi_scan=True,
             final_refine=False,
             merge_attn=True,
