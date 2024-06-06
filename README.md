@@ -14,7 +14,7 @@
 Underwater Image Enhancement (UIE) is critical for ma- rine research and exploration but hindered by complex distortions and blurring. Existing methods like convolutional neural networks (CNNs) struggle to model long-range dependencies, while transformer networks are computationally impractical for real-word applications. This paper presents PixMamba, a novel architecture to address these challenges. PixMamba leverages State Space Models (SSMs) for efficient long-range dependency modeling, a key advantage over CNNs with limited recep- tive fields and transformers with quadratic computational complexity. SSMs enable PixMamba to capture global contextual information while maintaining computational efficiency. PixMamba employs a dual-level strategy: the Efficient Mamba Net (EMNet) extracts localized patch- level features with a detail-preservation upsampling module, and the PixMamba Net (PixNet), a novel component that efficiently models pixel-level interactions across the entire image, capturing fine-grained features and global consistency that were previously difficult to obtain. PixMamba achieves state-of-the-art performance across various underwa- ter image datasets and delivers visibly superior results.
 
 ## Overview
-[](./figs/arch.png)
+[](./arch.png)
 
 ## Citation
 
