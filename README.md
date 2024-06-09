@@ -23,6 +23,6 @@ Underwater Image Enhancement (UIE) is critical for ma- rine research and explora
 
 ## Acknowledgment
 
-This project is based on Mamba ([paper](https://arxiv.org/abs/2312.00752), [code](https://github.com/state-spaces/mamba)), ConvNeXt ([paper](https://arxiv.org/abs/2201.03545), [code](https://github.com/facebookresearch/ConvNeXt)), [OpenMMLab](https://github.com/open-mmlab),[replknet](https://github.com/DingXiaoH/RepLKNet-pytorch/tree/main/erf), VMamba([paper](https://arxiv.org/abs/2401.10166), [code](https://github.com/MzeroMiko/VMamba)), and 
+This project is based on Mamba ([paper](https://arxiv.org/abs/2312.00752), [code](https://github.com/state-spaces/mamba)), [OpenMMLab](https://github.com/open-mmlab), [replknet](https://github.com/DingXiaoH/RepLKNet-pytorch/tree/main/erf), VMamba([paper](https://arxiv.org/abs/2401.10166), [code](https://github.com/MzeroMiko/VMamba)), and 
 VM-UNet([paper](https://arxiv.org/abs/2402.02491), [code](https://github.com/JCruan519/VM-UNet)) from their excellent works.
 

@@ -1124,7 +1124,7 @@ class VSSM(nn.Module):
 
 
         # lwmamba kwargs
-        kws = ['pixel_branch', 'pixel_d_state', 'pixel_bi_scan', 'pixel_block_num', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
+        kws = ['pixel_branch', 'pixel_d_state', 'pixel_bi_scan', 'pixel_block_num', 'bpe', 'bi_scan', 'pos_embed', 'bi_attn', 'last_skip', 'merge_attn', 'final_refine', 'mamba_up', 'conv_down', 'unet_down', 'unet_up', 'constrain_ss2d_expand', 'no_act_branch', 'expand']
         self.kw = dict()
         for k in kws:
             self.kw[k] = None
@@ -1307,9 +1307,10 @@ class VSSM(nn.Module):
         
         if self.kw['pixel_branch']:
             pixel_x = self.pre_pixel(pixel_x)
-            _, h, w, c = pixel_x.shape
-            pos = torch.nn.functional.interpolate(self.pixel_pos_embed, (h, w), mode='bilinear')
-            pixel_x = pixel_x + pos.permute(0, 2, 3, 1)
+            if self.kw['bpe']:
+                _, h, w, c = pixel_x.shape
+                pos = torch.nn.functional.interpolate(self.pixel_pos_embed, (h, w), mode='bilinear')
+                pixel_x = pixel_x + pos.permute(0, 2, 3, 1)
 
         x_downsample = []
         for i_layer, layer in enumerate(self.layers):
@@ -1501,6 +1502,7 @@ if __name__ == "__main__":
             pixel_block_num=2,
             pixel_bi_scan=False,
             pixel_d_state=12,
+            bpe=True,
             bi_scan=True,
             final_refine=False,
             merge_attn=True,
