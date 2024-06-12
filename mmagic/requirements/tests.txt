@@ -1,0 +1,16 @@
+albumentations
+-e git+https://github.com/openai/CLIP.git@d50d76daa670286dd6cacf3bcd80b5e4823fc8e1#egg=clip
+controlnet_aux
+# codecov
+# flake8
+# isort==5.10.1
+# onnxruntime
+# pytest
+# pytest-runner
+# yapf
+coverage < 7.0.0
+imageio-ffmpeg==0.4.4
+interrogate
+mmdet >= 3.0.0
+pytest
+transformers>=4.27.4

@@ -1,0 +1,139 @@
+name: pr_stage_test
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'README_zh-CN.md'
+      - '.owners.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/*.md'
+      - 'docs/**'
+      - 'projects/**'
+      - '.dev_scripts/**'
+      - '.circleci/**'
+      - 'configs/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_cpu:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python-version: [3.8]
+        include:
+          - torch: 2.0.1
+            torchvision: 0.15.2
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Upgrade pip
+        run: pip install pip --upgrade && pip install wheel
+      - name: Install PyTorch
+        run: pip install torch==${{matrix.torch}}+cpu torchvision==${{matrix.torchvision}}+cpu -f https://download.pytorch.org/whl/torch_stable.html
+      - name: Install MMEngine
+        run: pip install git+https://github.com/open-mmlab/mmengine.git@main
+      - name: Install MMCV
+        run: |
+          pip install -U openmim
+          mim install 'mmcv >= 2.0.0'
+      - name: Install other dependencies
+        run: |
+          pip install -r requirements/tests.txt
+      - name: Build and install
+        run: rm -rf .eggs && pip install -e .
+      - name: Run unittests and generate coverage report
+        run: |
+          coverage run --branch --source mmagic -m pytest tests/
+          coverage xml --omit="**/stylegan3_ops/*,**/conv2d_gradfix.py,**/grid_sample_gradfix.py,**/misc.py,**/upfirdn2d.py,**all_gather_layer.py"
+          coverage report -m
+      # Upload coverage report for python3.7 && pytorch1.8.1 cpu
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1.0.14
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          env_vars: OS,PYTHON
+          name: codecov-umbrella
+          fail_ci_if_error: false
+      # - name: Setup tmate session
+      #   if: ${{ failure() }}
+      #   uses: mxschmitt/action-tmate@v3
+
+  build_cu118:
+    runs-on: ubuntu-22.04
+    container:
+      image: pytorch/pytorch:2.1.0-cuda11.8-cudnn8-devel
+    strategy:
+      matrix:
+        python-version: [3.8]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Upgrade pip
+        run: pip install pip --upgrade && pip install wheel
+      - name: Fetch GPG keys
+        run: |
+          apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
+          apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu2204/x86_64/7fa2af80.pub
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg libsm6 libxext6 git ninja-build libglib2.0-0 libxrender-dev
+      - name: Install PyTorch
+        run: pip install torch==2.0.1+cpu torchvision==0.15.2+cpu -f https://download.pytorch.org/whl/torch_stable.html
+      - name: Install mmagic dependencies
+        run: |
+          pip install git+https://github.com/open-mmlab/mmengine.git@main
+          pip install -U openmim
+          mim install 'mmcv >= 2.0.0'
+          pip install -r requirements/tests.txt
+      - name: Build and install
+        run: |
+          pip install -e .
+      # - name: Setup tmate session
+      #   if: ${{ failure() }}
+      #   uses: mxschmitt/action-tmate@v3
+
+  build_windows:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        python-version: [3.8]
+        platform: [cpu, cu118]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Upgrade pip
+        run: python -m pip install pip --upgrade && pip install wheel
+      - name: Install lmdb
+        run: python -m pip install lmdb
+      - name: Install PyTorch
+        run: python -m pip install torch==2.0.1+${{matrix.platform}} torchvision==0.15.2+${{matrix.platform}} -f https://download.pytorch.org/whl/torch_stable.html
+      - name: Install mmagic dependencies
+        run: |
+          python -m pip install git+https://github.com/open-mmlab/mmengine.git@main
+          python -m pip install -U openmim
+          mim install 'mmcv >= 2.0.0'
+          python -m pip install -r requirements/tests.txt
+      - name: Build and install
+        run: |
+          python -m pip install -e .
+      - name: Run unittests and generate coverage report
+        run: |
+          pytest tests/
+      # - name: Setup tmate session
+      #   if: ${{ failure() }}
+      #   uses: mxschmitt/action-tmate@v3

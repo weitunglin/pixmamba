@@ -1,0 +1,116 @@
+Collections:
+- Name: BasicVSR
+  Paper:
+    Title: 'BasicVSR: The Search for Essential Components in Video Super-Resolution
+      and Beyond'
+    URL: https://arxiv.org/abs/2012.02181
+  README: configs/basicvsr/README.md
+  Task:
+  - video super-resolution
+  Year: 2021
+Models:
+- Config: configs/basicvsr/basicvsr_2xb4_reds4.py
+  In Collection: BasicVSR
+  Name: basicvsr_2xb4_reds4
+  Results:
+  - Dataset: REDS4(BIx4)
+    Metrics:
+      PSNR (RGB): 31.417
+      SSIM (RGB): 0.8909
+    Task: Video Super-Resolution
+  - Dataset: UDM10(BDx4)
+    Metrics:
+      PSNR (Y): 33.4478
+      SSIM (Y): 0.9306
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BIx4)
+    Metrics:
+      PSNR (Y): 36.2848
+      SSIM (Y): 0.9395
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BDx4)
+    Metrics:
+      PSNR (Y): 34.47
+      SSIM (Y): 0.9286
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BIx4)
+    Metrics:
+      PSNR (Y): 27.2694
+      SSIM (Y): 0.8318
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BDx4)
+    Metrics:
+      PSNR (Y): 24.4541
+      SSIM (Y): 0.7455
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr/basicvsr_reds4_20120409-0e599677.pth
+- Config: configs/basicvsr/basicvsr_2xb4_vimeo90k-bi.py
+  In Collection: BasicVSR
+  Name: basicvsr_2xb4_vimeo90k-bi
+  Results:
+  - Dataset: REDS4(BIx4)
+    Metrics:
+      PSNR (RGB): 30.3128
+      SSIM (RGB): 0.866
+    Task: Video Super-Resolution
+  - Dataset: UDM10(BDx4)
+    Metrics:
+      PSNR (Y): 34.5554
+      SSIM (Y): 0.9451
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BIx4)
+    Metrics:
+      PSNR (Y): 37.2026
+      SSIM (Y): 0.9434
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BDx4)
+    Metrics:
+      PSNR (Y): 34.8097
+      SSIM (Y): 0.9316
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BIx4)
+    Metrics:
+      PSNR (Y): 27.2755
+      SSIM (Y): 0.8248
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BDx4)
+    Metrics:
+      PSNR (Y): 25.0517
+      SSIM (Y): 0.7636
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr/basicvsr_vimeo90k_bi_20210409-d2d8f760.pth
+- Config: configs/basicvsr/basicvsr_2xb4_vimeo90k-bd.py
+  In Collection: BasicVSR
+  Name: basicvsr_2xb4_vimeo90k-bd
+  Results:
+  - Dataset: REDS4(BIx4)
+    Metrics:
+      PSNR (RGB): 29.0376
+      SSIM (RGB): 0.8481
+    Task: Video Super-Resolution
+  - Dataset: UDM10(BDx4)
+    Metrics:
+      PSNR (Y): 39.9953
+      SSIM (Y): 0.9695
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BIx4)
+    Metrics:
+      PSNR (Y): 34.6427
+      SSIM (Y): 0.9335
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BDx4)
+    Metrics:
+      PSNR (Y): 37.5501
+      SSIM (Y): 0.9499
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BIx4)
+    Metrics:
+      PSNR (Y): 26.2708
+      SSIM (Y): 0.8022
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BDx4)
+    Metrics:
+      PSNR (Y): 27.9791
+      SSIM (Y): 0.8556
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr/basicvsr_vimeo90k_bd_20210409-0154dd64.pth

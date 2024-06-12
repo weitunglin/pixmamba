@@ -1,0 +1,7 @@
+include requirements/*.txt
+include mmagic/.mim/VERSION
+include mmagic/.mim/model-index.yml
+include mmagic/evaluation/metrics/niqe_pris_params.npz
+recursive-include mmagic/.mim/configs *.py *.yml
+recursive-include mmagic/.mim/tools *.sh *.py
+recursive-include mmagic/.mim/demo *.py

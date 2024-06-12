@@ -1,0 +1,148 @@
+Collections:
+- Name: BasicVSR++
+  Paper:
+    Title: 'BasicVSR++: Improving Video Super-Resolution with Enhanced Propagation
+      and Alignment'
+    URL: https://arxiv.org/abs/2104.13371
+  README: configs/basicvsr_pp/README.md
+  Task:
+  - video super-resolution
+  Year: 2022
+Models:
+- Config: configs/basicvsr_pp/basicvsr-pp_c64n7_8xb1-600k_reds4.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c64n7_8xb1-600k_reds4
+  Results:
+  - Dataset: REDS4(BIx4)
+    Metrics:
+      PSNR (RGB): 32.3855
+      SSIM (RGB): 0.9069
+    Task: Video Super-Resolution
+  - Dataset: UDM10(BDx4)
+    Metrics:
+      PSNR (Y): 34.6868
+      SSIM (Y): 0.9417
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BIx4)
+    Metrics:
+      PSNR (Y): 27.7674
+      SSIM (Y): 0.8444
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BDx4)
+    Metrics:
+      PSNR (Y): 24.6209
+      SSIM (Y): 0.754
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BIx4)
+    Metrics:
+      PSNR (Y): 36.4445
+      SSIM (Y): 0.9411
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BDx4)
+    Metrics:
+      PSNR (Y): 34.0372
+      SSIM (Y): 0.9244
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth
+- Config: configs/basicvsr_pp/basicvsr-pp_c64n7_4xb2-300k_vimeo90k-bi.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c64n7_4xb2-300k_vimeo90k-bi
+  Results:
+  - Dataset: REDS4(BIx4)
+    Metrics:
+      PSNR (RGB): 31.0126
+      SSIM (RGB): 0.8804
+    Task: Video Super-Resolution
+  - Dataset: UDM10(BDx4)
+    Metrics:
+      PSNR (Y): 33.1211
+      SSIM (Y): 0.927
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BIx4)
+    Metrics:
+      PSNR (Y): 27.7882
+      SSIM (Y): 0.8401
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BDx4)
+    Metrics:
+      PSNR (Y): 23.6086
+      SSIM (Y): 0.7033
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BIx4)
+    Metrics:
+      PSNR (Y): 37.7864
+      SSIM (Y): 0.95
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BDx4)
+    Metrics:
+      PSNR (Y): 33.8972
+      SSIM (Y): 0.9195
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_300k_vimeo90k_bi_20210305-4ef437e2.pth
+- Config: configs/basicvsr_pp/basicvsr-pp_c64n7_4xb2-300k_vimeo90k-bd.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c64n7_4xb2-300k_vimeo90k-bd
+  Results:
+  - Dataset: REDS4(BIx4)
+    Metrics:
+      PSNR (RGB): 29.2041
+      SSIM (RGB): 0.8528
+    Task: Video Super-Resolution
+  - Dataset: UDM10(BDx4)
+    Metrics:
+      PSNR (Y): 40.7216
+      SSIM (Y): 0.9722
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BIx4)
+    Metrics:
+      PSNR (Y): 26.4377
+      SSIM (Y): 0.8074
+    Task: Video Super-Resolution
+  - Dataset: Vid4(BDx4)
+    Metrics:
+      PSNR (Y): 29.04
+      SSIM (Y): 0.8753
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BIx4)
+    Metrics:
+      PSNR (Y): 34.7248
+      SSIM (Y): 0.9351
+    Task: Video Super-Resolution
+  - Dataset: Vimeo-90K-T(BDx4)
+    Metrics:
+      PSNR (Y): 38.2054
+      SSIM (Y): 0.955
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_300k_vimeo90k_bd_20210305-ab315ab1.pth
+- Config: configs/basicvsr_pp/basicvsr-pp_c128n25_600k_ntire-vsr.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c128n25_600k_ntire-vsr
+  Results:
+  - Dataset: NTIRE2021VideoSuper-Resolution-Track1
+    Metrics: {}
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_vsr_20210311-1ff35292.pth
+- Config: configs/basicvsr_pp/basicvsr-pp_c128n25_600k_ntire-decompress-track1.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c128n25_600k_ntire-decompress-track1
+  Results:
+  - Dataset: NTIRE2021QualityEnhancementofCompressedVideo-Track1
+    Metrics: {}
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track1_20210223-7b2eba02.pth
+- Config: configs/basicvsr_pp/basicvsr-pp_c128n25_600k_ntire-decompress-track2.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c128n25_600k_ntire-decompress-track2
+  Results:
+  - Dataset: NTIRE2021QualityEnhancementofCompressedVideo-Track2
+    Metrics: {}
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track2_20210314-eeae05e6.pth
+- Config: configs/basicvsr_pp/basicvsr-pp_c128n25_600k_ntire-decompress-track3.py
+  In Collection: BasicVSR++
+  Name: basicvsr-pp_c128n25_600k_ntire-decompress-track3
+  Results:
+  - Dataset: NTIRE2021QualityEnhancementofCompressedVideo-Track3
+    Metrics: {}
+    Task: Video Super-Resolution
+  Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth

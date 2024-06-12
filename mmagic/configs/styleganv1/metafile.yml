@@ -1,0 +1,34 @@
+Collections:
+- Name: StyleGANv1
+  Paper:
+    Title: A Style-Based Generator Architecture for Generative Adversarial Networks
+    URL: https://openaccess.thecvf.com/content_CVPR_2019/html/Karras_A_Style-Based_Generator_Architecture_for_Generative_Adversarial_Networks_CVPR_2019_paper.html
+  README: configs/styleganv1/README.md
+  Task:
+  - unconditional gans
+  Year: 2019
+Models:
+- Config: configs/styleganv1/styleganv1_ffhq-256x256_8xb4-25Mimgs.py
+  In Collection: StyleGANv1
+  Name: styleganv1_ffhq-256x256_8xb4-25Mimgs
+  Results:
+  - Dataset: FFHQ
+    Metrics:
+      FID50k: 6.09
+      P&R50k_full:
+        PSNR: 70.228
+        SSIM: 27.05
+    Task: Unconditional GANs
+  Weights: https://download.openmmlab.com/mmediting/styleganv1/styleganv1_ffhq_256_g8_25Mimg_20210407_161748-0094da86.pth
+- Config: configs/styleganv1/styleganv1_ffhq-1024x1024_8xb4-25Mimgs.py
+  In Collection: StyleGANv1
+  Name: styleganv1_ffhq-1024x1024_8xb4-25Mimgs
+  Results:
+  - Dataset: FFHQ
+    Metrics:
+      FID50k: 4.056
+      P&R50k_full:
+        PSNR: 70.302
+        SSIM: 36.869
+    Task: Unconditional GANs
+  Weights: https://download.openmmlab.com/mmediting/styleganv1/styleganv1_ffhq_1024_g8_25Mimg_20210407_161627-850a7234.pth

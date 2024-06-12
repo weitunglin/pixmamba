@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: MMagic
+    given-names: Contributors
+title: "MMagic: OpenMMLab Multimodal Advanced, Generative, and Intelligent Creation Toolbox"
+version: 1.0.0
+date-released: 2023-04-25
+url: "https://github.com/open-mmlab/mmagic"
+license: Apache-2.0
