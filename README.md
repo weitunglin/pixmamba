@@ -19,8 +19,13 @@ Underwater Image Enhancement (UIE) is critical for ma- rine research and explora
 ![arch](./arch.png)
 
 ## Citation
-TO BE PUBLISHED
 ```
+@article{lin2024pixmamba,
+    title={{PixMamba}: Leveraging State Space Models in a Dual-Level Architecture for Underwater Image Enhancement}, 
+    author={Wei-Tung Lin and Yong-Xiang Lin and Jyun-Wei Chen and Kai-Lung Hua},
+    journal={arXiv preprint arXiv:2406.08444},
+    year={2024}
+}
 ```
 
 ## Acknowledgment
