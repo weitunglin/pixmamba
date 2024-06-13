@@ -1,5 +1,3 @@
-> :warning: Currently Under Development :hammer_and_wrench:
-
 <div align="center">
 <h1>PixMamba </h1>
 <h3>PixMamba: Leveraging State Space Models in a Dual-Level Architecture for Underwater Image Enhancement</h3>
@@ -30,6 +28,6 @@ Underwater Image Enhancement (UIE) is critical for ma- rine research and explora
 
 ## Acknowledgment
 
-This project is based on Mamba ([paper](https://arxiv.org/abs/2312.00752), [code](https://github.com/state-spaces/mamba)), [OpenMMLab](https://github.com/open-mmlab), [replknet](https://github.com/DingXiaoH/RepLKNet-pytorch/tree/main/erf), VMamba([paper](https://arxiv.org/abs/2401.10166), [code](https://github.com/MzeroMiko/VMamba)), 
-VM-UNet([paper](https://arxiv.org/abs/2402.02491), [code](https://github.com/JCruan519/VM-UNet)), UIE_Benchmark([code](https://github.com/ddz16/UIE_Benckmark)) from their excellent works.
+This project is based on Mamba ([paper](https://arxiv.org/abs/2312.00752), [code](https://github.com/state-spaces/mamba)), [OpenMMLab](https://github.com/open-mmlab), [replknet](https://github.com/DingXiaoH/RepLKNet-pytorch/tree/main/erf), VMamba ([paper](https://arxiv.org/abs/2401.10166), [code](https://github.com/MzeroMiko/VMamba)), 
+VM-UNet ([paper](https://arxiv.org/abs/2402.02491), [code](https://github.com/JCruan519/VM-UNet)), UIE_Benchmark ([code](https://github.com/ddz16/UIE_Benckmark)). Thanks for their excellent works.
 
