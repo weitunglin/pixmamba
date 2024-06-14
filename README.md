@@ -6,6 +6,7 @@
 
 - [Abstract](#abstract)
 - [Overview](#overview)
+- [Getting Started](#getting-started)
 - [Citation](#citation)
 - [Acknowledgment](#acknowledgment)
 
@@ -16,6 +17,11 @@ Underwater Image Enhancement (UIE) is critical for marine research and explorati
 ## Overview
 
 ![arch](./arch.png)
+
+## Getting Started
+
+pixmamba implementation can be found [here](./classification/models/pixmamba.py).
+training scripts integrated with [mmagic](https://github.com/open-mmlab/mmagic) will be released soon.
 
 ## Citation
 
