@@ -370,9 +370,6 @@ class MambaPatchExpand(nn.Module):
     def __init__(self, dim, out_dim, dim_scale=2, norm_layer=nn.LayerNorm, **kwargs):
         super().__init__()
         self.dim = dim
-        # self.expand = nn.Linear(
-        #     dim, dim*2, bias=False) if dim_scale == 2 else nn.Identity()
-        # self.norm = norm_layer(dim // dim_scale)
 
         self.reduce_ratio = 1
         if self.reduce_ratio != 1:
@@ -389,15 +386,6 @@ class MambaPatchExpand(nn.Module):
         x = self.up(x)
         x = x.permute(0, 2, 3, 1)
         x = self.norm(x)
-        # x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//4)
-        # x = self.reduction(x)
-        # x = 
-
-        # x = self.expand(x) # B H W C -> B H W 2C
-        # B, H, W, C = x.shape
-        # x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//4)
-        # x = self.norm(x)
-
         return x
 
 
@@ -1240,8 +1228,6 @@ class VSSM(nn.Module):
                     layer_up = patch_expand(dim=dim,out_dim=dim//2)
                 else:
                     layer_up = patch_expand(dim=dim, dim_scale=1, norm_layer=norm_layer, out_dim=dim)
-                # layer_up = MambaPatchExpand(dim=dim, dim_scale=2, norm_layer=norm_layer)
-                # layer_up = MambaPatchExpand(dim=dim, dim_scale=2, norm_layer=norm_layer)
             else:
                 layer_up = VSSLayer_up(
                     # dim= int(dims[0] * 2 ** (self.num_layers-1-i_layer)),
@@ -1431,44 +1417,6 @@ def check_vssm_equals_vmambadp():
 class Backbone_VSSM(VSSM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # self.load_pretrained(pretrained)
-
-    # def load_pretrained(self, config):
-    #     pretrained_path = config.MODEL.PRETRAIN_CKPT
-    #     if pretrained_path is not None:
-    #         print("pretrained_path:{}".format(pretrained_path))
-    #         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    #         pretrained_dict = torch.load(pretrained_path, map_location=device)
-    #         if "model"  not in pretrained_dict:
-    #             print("---start load pretrained modle by splitting---")
-    #             pretrained_dict = {k[17:]:v for k,v in pretrained_dict.items()}
-    #             for k in list(pretrained_dict.keys()):
-    #                 if "output" in k:
-    #                     print("delete key:{}".format(k))
-    #                     del pretrained_dict[k]
-    #             msg = self.ssm.load_state_dict(pretrained_dict,strict=False)
-    #             # print(msg)
-    #             return
-    #         pretrained_dict = pretrained_dict['model']
-    #         print("---start load pretrained modle of swin encoder---")
-
-    #         model_dict = self.ssm.state_dict()
-    #         full_dict = copy.deepcopy(pretrained_dict)
-    #         for k, v in pretrained_dict.items():
-    #             if "layers." in k:
-    #                 current_layer_num = 3-int(k[7:8])
-    #                 current_k = "layers_up." + str(current_layer_num) + k[8:]
-    #                 full_dict.update({current_k:v})
-    #         for k in list(full_dict.keys()):
-    #             if k in model_dict:
-    #                 if full_dict[k].shape != model_dict[k].shape:
-    #                     print("delete:{};shape pretrain:{};shape model:{}".format(k,v.shape,model_dict[k].shape))
-    #                     del full_dict[k]
-
-    #         msg = self.ssm.load_state_dict(full_dict, strict=False)
-    #         # print(msg)
-    #     else:
-    #         print("none pretrain")
 
     def forward(self, x):
         if x.size()[1] == 1:
@@ -1483,18 +1431,6 @@ if __name__ == "__main__":
     img_size = 256
     batch_size = 1
     with torch.autocast("cuda", dtype=torch.float16):
-        # v0 params 19121568 GFLOPs 7.209799008
-        # model = VSSM(depths=[2,2,2,2], dims=96).to('cuda')
-
-        # v1 params 2800845 GFLOPs 6.593584807999999
-        # model = VSSM(depths=[1,1,1,1], dims=48, pixel_branch=True, bi_scan=True, final_attn=True, pos_embed=True, merge_attn=True, last_skip=False, patch_size=2).to('cuda')
-
-        # params 11269536 GFLOPs 15.127577120000002
-        # model = VSSM(depths=[1,1,1,1], dims=96, patch_size=2).to('cuda')
-
-        # params 3045072 GFLOPs 4.883572632 (1,1,1,1)
-        # params 5204496 GFLOPs 8.879951664 (2,2,2,2)
-        # params 2711760 GFLOPs 3.7250875359999998 (1,1,1,1) bi_scan
         model = VSSM(
             depths=[1]*3,
             dims=128,
@@ -1516,9 +1452,7 @@ if __name__ == "__main__":
             no_act_branch=True,
             ).to('cuda')
 
-        # model = VSSM(depths=[2,2,2,2], dims=96, pixel_branch=True, bi_scan=True, final_attn=True, pos_embed=True, merge_attn=True, last_skip=False, patch_size=2).to('cuda')
-        model = model.half()
-        int = torch.randn(batch_size,img_channels,img_size, img_size).half().cuda()
+        int = torch.randn(batch_size,img_channels,img_size, img_size).cuda()
         out = model(int)
         print(out.shape)
         print(model.flops((img_channels, 256, 256)))
