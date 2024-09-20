@@ -12,7 +12,7 @@
 - [Acknowledgment](#acknowledgment)
 
 ## Updates
-- **`Sep. 20, 2024`**: News: Our paper PixMamba has been accepted by ACCV 2024.
+- **`Sep. 20, 2024`** News: Our paper PixMamba has been accepted by ACCV 2024.
 
 ## Abstract
 
