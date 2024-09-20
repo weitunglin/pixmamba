@@ -4,11 +4,15 @@
 
 </div>
 
+- [Updates](#updates)
 - [Abstract](#abstract)
 - [Overview](#overview)
 - [Getting Started](#getting-started)
 - [Citation](#citation)
 - [Acknowledgment](#acknowledgment)
+
+## Updates
+- **`Sep. 20, 2024`**: News: Our paper PixMamba has been accepted by ACCV 2024.
 
 ## Abstract
 
