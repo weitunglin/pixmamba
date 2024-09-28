@@ -44,7 +44,7 @@ pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu118/torch2
 cd mmagic && pip install -e .
 ```
 
-## Data Setup
+### Data Setup
 
 **UIEB**
 `train` contains 800 image pairs. (u800)
@@ -73,7 +73,7 @@ pixmamba
       └── blue-green
 ```
 
-## Training
+### Training
 
 ```bash
 export CONFIG_PATH=configs/pixmamba/final.py
