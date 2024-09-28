@@ -46,14 +46,14 @@ cd mmagic && pip install -e .
 
 ### Data Setup
 
-**UIEB**
-`train` contains 800 image pairs. (u800)
-`valid` contains 90 image pairs. (t90)
-`test` contains 60 raw images for testing. (c60)
-`valid_t90` contains 90 raw images for testing. (t90 w/o reference)
+- **UIEB**
+  - `train` contains 800 image pairs. (u800)
+  - `valid` contains 90 image pairs. (t90)
+  - `test` contains 60 raw images for testing. (c60)
+  - `valid_t90` contains 90 raw images for testing. (t90 w/o reference)
 
-**UCCS**
-`blue`, `green`, and `blue-green` contains 100 images each.
+- **UCCS**
+  -  `blue`, `green`, and `blue-green` contains 100 images each.
 
 ```bash
 pixmamba
