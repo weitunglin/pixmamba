@@ -12,3 +12,4 @@ submitit
 tensorboardX
 fvcore
 seaborn
+wandb

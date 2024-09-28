@@ -7,8 +7,8 @@ from torch import nn
 from torch.utils import checkpoint
 
 from mmengine.model import BaseModule
-from mmdet.registry import MODELS as MODELS_MMDET
-from mmseg.registry import MODELS as MODELS_MMSEG
+#from mmdet.registry import MODELS as MODELS_MMDET
+#from mmseg.registry import MODELS as MODELS_MMSEG
 from mmagic.registry import MODELS as MODELS_MMAGIC
 
 def import_abspy(name="models", path="classification/"):
@@ -29,8 +29,8 @@ build = import_abspy(
 # Backbone_VSSM: nn.Module = build.seamamba.Backbone_VSSM
 Backbone_VSSM: nn.Module = build.pixmamba.Backbone_VSSM
 
-@MODELS_MMSEG.register_module()
-@MODELS_MMDET.register_module()
+#@MODELS_MMSEG.register_module()
+#@MODELS_MMDET.register_module()
 @MODELS_MMAGIC.register_module()
 class MM_VSSM(BaseModule, Backbone_VSSM):
     def __init__(self, *args, **kwargs):

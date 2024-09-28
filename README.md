@@ -12,6 +12,7 @@
 - [Acknowledgment](#acknowledgment)
 
 ## Updates
+- **`Sep. 28, 2024`** Updates: Training scripts released.
 - **`Sep. 20, 2024`** News: Our paper PixMamba has been accepted by ACCV 2024.
 
 ## Abstract
@@ -24,8 +25,61 @@ Underwater Image Enhancement (UIE) is critical for marine research and explorati
 
 ## Getting Started
 
-pixmamba implementation can be found [here](./classification/models/pixmamba.py).
-training scripts integrated with [mmagic](https://github.com/open-mmlab/mmagic) will be released soon.
+### Environment Setup
+
+```bash
+conda create -n pixmamba python=3.10
+# cuda and pytorch
+conda install cuda-toolkit -c nvidia/label/cuda-11.8.0
+# pytorch<=2.1 is required
+conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=11.8 -c pytorch -c nvidia
+# dependencies
+pip install -r requirements.txt
+pip install opencv-python-headless ftfy regex
+pip install mamba-ssm[causal-conv1d]
+# mamba kernel
+cd kernels/selective_scan && pip install . && cd ../.. # takes ~15 mins
+# mmcv and mmagic (mmcv<=2.1.0 is required)
+pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.1/index.html
+cd mmagic && pip install -e .
+```
+
+## Data Setup
+
+**UIEB**
+`train` contains 800 image pairs. (u800)
+`valid` contains 90 image pairs. (t90)
+`test` contains 60 raw images for testing. (c60)
+`valid_t90` contains 90 raw images for testing. (t90 w/o reference)
+
+**UCCS**
+`blue`, `green`, and `blue-green` contains 100 images each.
+
+```bash
+pixmamba
+└── data
+  ├── uieb
+  │   ├── train
+  │   │   ├── raw-890
+  │   │   └── reference-890
+  │   ├── valid
+  │   │   ├── raw-890
+  │   │   └── reference-890
+  │   ├── test
+  │   └── valid_t90
+  └── uccs
+      ├── blue
+      ├── green
+      └── blue-green
+```
+
+## Training
+
+```bash
+export CONFIG_PATH=configs/pixmamba/final.py
+export NUM_GPUS=8
+cd mmagic && bash tools/dist_train.sh $CONFIG_PATH $NUM_GPUS
+```
 
 ## Citation
 

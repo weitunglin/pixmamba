@@ -83,7 +83,7 @@ test_pipeline = [
     dict(type='PackInputs')
 ]
 
-data_root = '/home/allen/workspace/seamamba/data/uieb_t90/'
+data_root = '../data/uieb/'
 
 train_dataloader = dict(
     batch_size=8,
@@ -145,7 +145,8 @@ c60_dataloader = dict(
     ),
 )
 
-uccs_blue_dataroot = '/home/allen/workspace/Realworld-Underwater-Image-Enhancement-RUIE-Benchmark/UCCS/blue'
+uccs_blue_dataroot = '../data/uccs/blue'
+
 uccs_blue_dataloader = dict(
     batch_size=8,
     num_workers=8,
@@ -161,7 +162,8 @@ uccs_blue_dataloader = dict(
     ),
 )
 
-uccs_green_dataroot = '/home/allen/workspace/Realworld-Underwater-Image-Enhancement-RUIE-Benchmark/UCCS/green'
+uccs_green_dataroot = '../data/uccs/green'
+
 uccs_green_dataloader = dict(
     batch_size=8,
     num_workers=8,
@@ -178,7 +180,8 @@ uccs_green_dataloader = dict(
 )
 
 
-uccs_blue_green_dataroot = '/home/allen/workspace/Realworld-Underwater-Image-Enhancement-RUIE-Benchmark/UCCS/blue-green'
+uccs_blue_green_dataroot = '../data/uccs/blue-green'
+
 uccs_blue_green_dataloader = dict(
     batch_size=8,
     num_workers=8,
@@ -226,5 +229,3 @@ val_evaluator = evaluator
 test_dataloader = [t90_dataloader, c60_dataloader, uccs_green_dataloader, uccs_blue_dataloader, uccs_blue_green_dataloader]
 test_evaluator = [t90_evaluator,c60_evaluator,uccsgreen_evaluator,uccsblue_evaluator,uccsbluegreen_evaluator]
 
-# test_dataloader = [c60_dataloader]
-# test_evaluator = [c60_evaluator]

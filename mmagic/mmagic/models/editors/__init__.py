@@ -66,7 +66,7 @@ from .tdan import TDAN, TDANNet
 from .textual_inversion import TextualInversion
 from .tof import TOFlowVFINet, TOFlowVSRNet, ToFResBlock
 from .ttsr import LTE, TTSR, SearchTransformer, TTSRDiscriminator, TTSRNet
-from .vico import ViCo
+#from .vico import ViCo
 from .wgan_gp import WGANGP
 
 __all__ = [
@@ -97,6 +97,6 @@ __all__ = [
     'ClipWrapper', 'EG3D', 'Restormer', 'SwinIRNet', 'StableDiffusion',
     'ControlStableDiffusion', 'DreamBooth', 'TextualInversion', 'DeblurGanV2',
     'DeblurGanV2Generator', 'DeblurGanV2Discriminator',
-    'StableDiffusionInpaint', 'ViCo', 'FastComposer', 'AnimateDiff',
+    'StableDiffusionInpaint', 'FastComposer', 'AnimateDiff',
     'UNet3DConditionMotionModel', 'StableDiffusionXL'
 ]

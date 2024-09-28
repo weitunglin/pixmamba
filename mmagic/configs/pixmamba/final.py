@@ -44,7 +44,7 @@ model = dict(
     )
 )
 
-batch_size = 16
+batch_size = 8
 train_dataloader = dict(batch_size=batch_size)
 val_dataloader = dict(batch_size=batch_size)
 
@@ -62,7 +62,7 @@ param_scheduler = [
 train_cfg = dict(by_epoch=True, max_epochs=max_epochs)
 
 visualizer = dict(
-    vis_backends=[dict(type='LocalVisBackend'), dict(type='WandbVisBackend', init_kwargs=dict(project='seamamba', name=ver))])
+    vis_backends=[dict(type='LocalVisBackend'), dict(type='WandbVisBackend', init_kwargs=dict(project='pixmamba', name=ver))])
 
 auto_scale_lr = dict(enable=False)
 default_hooks = dict(logger=dict(interval=5))
@@ -71,12 +71,12 @@ custom_hooks = [dict(type='BasicVisualizationHook', interval=5)]
 find_unused_parameter=False
 
 # Test Scripts
-visualizer = dict(
-    type='ConcatImageVisualizer',
-    fn_key='img_path',
-    img_keys=['pred_img'],
-    bgr2rgb=True)
+# visualizer = dict(
+#     type='ConcatImageVisualizer',
+#     fn_key='img_path',
+#     img_keys=['pred_img'],
+#     bgr2rgb=True)
 
 
-custom_hooks = [
-    dict(type='BasicVisualizationHook', interval=1)]
+# custom_hooks = [
+#     dict(type='BasicVisualizationHook', interval=1)]
