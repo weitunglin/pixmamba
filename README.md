@@ -46,6 +46,12 @@ cd mmagic && pip install -r requirements.txt && pip install -e .
 
 ### Data Setup
 
+```bash
+pip install gdown
+gdown 1EL_4CgxO5pSKADqY2Glw2ZzV7A3VSaab
+tar xfz data.tar.gz
+```
+
 - **UIEB**
   - `train` contains 800 image pairs. (u800)
   - `valid` contains 90 image pairs. (t90)
@@ -77,8 +83,9 @@ pixmamba
 
 ```bash
 export CONFIG_PATH=configs/pixmamba/final.py
-export NUM_GPUS=8
-cd mmagic && bash tools/dist_train.sh $CONFIG_PATH $NUM_GPUS
+export NUM_GPUS=1
+cd mmagic
+bash tools/dist_train.sh $CONFIG_PATH $NUM_GPUS # ~5hrs training on single RTX 4090 GPU
 ```
 
 ## Citation
@@ -100,4 +107,3 @@ VM-UNet ([paper](https://arxiv.org/abs/2402.02491), [code](https://github.com/JC
 ## Contact
 
 I'm happy to address any questions or concerns you may have. Please feel free to contact me at weitung8@gmail.com
-
