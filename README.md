@@ -41,7 +41,7 @@ pip install mamba-ssm[causal-conv1d]
 cd kernels/selective_scan && pip install . && cd ../.. # takes ~15 mins
 # mmcv and mmagic (mmcv<=2.1.0 is required)
 pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.1/index.html
-cd mmagic && pip install -e .
+cd mmagic && pip install -r requirements.txt && pip install -e .
 ```
 
 ### Data Setup

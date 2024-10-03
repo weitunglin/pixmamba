@@ -43,3 +43,4 @@ kernels/selective_scan/ssmjax.py
 classification/models/vheat_wzz.py
 
 data/
+data.tar.gz
