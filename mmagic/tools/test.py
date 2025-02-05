@@ -17,6 +17,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Test (and eval) a model')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument('--input_dir', type=str, required=True)
+    parser.add_argument('--output_dir', type=str, required=True)
     parser.add_argument('--out', help='the file to save metric results.')
     parser.add_argument(
         '--work-dir',
@@ -56,13 +58,22 @@ def main():
         cfg.merge_from_dict(args.cfg_options)
 
     # work_dir is determined in this priority: CLI > segment in file > filename
-    if args.work_dir is not None:
-        # update configs according to CLI args if args.work_dir is not None
-        cfg.work_dir = args.work_dir
-    elif cfg.get('work_dir', None) is None:
-        # use config filename as default work_dir if cfg.work_dir is None
-        cfg.work_dir = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0])
+    # if args.work_dir is not None:
+    #     # update configs according to CLI args if args.work_dir is not None
+    #     cfg.work_dir = args.work_dir
+    # elif cfg.get('work_dir', None) is None:
+    #     # use config filename as default work_dir if cfg.work_dir is None
+    #     cfg.work_dir = osp.join('./work_dirs',
+    #                             osp.splitext(osp.basename(args.config))[0])
+
+    cfg.visualizer.img_keys = ['pred_img']
+
+    cfg.custom_hooks = [
+        dict(type='BasicVisualizationHook', interval=1)]
+
+
+    cfg.custom_test_dataloader.dataset.data_root = args.input_dir
+    cfg.work_dir = args.output_dir
 
     cfg.load_from = args.checkpoint
 

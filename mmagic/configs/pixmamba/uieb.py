@@ -197,6 +197,20 @@ uccs_blue_green_dataloader = dict(
     ),
 )
 
+custom_test_dataloader = dict(
+    batch_size=8,
+    num_workers=8,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(
+        type='BasicImageDataset',
+        metainfo=dict(dataset_type='', task_name=''),
+        data_root='placeholder',
+        data_prefix=dict(img='.', gt='.'),
+        pipeline=val_pipeline
+    ),
+)
 
 evaluator = [
     dict(type='MAE', prefix='uie'),
@@ -226,6 +240,6 @@ uccsbluegreen_evaluator = [
 
 val_evaluator = evaluator
 
-test_dataloader = [t90_dataloader, c60_dataloader, uccs_green_dataloader, uccs_blue_dataloader, uccs_blue_green_dataloader]
-test_evaluator = [t90_evaluator,c60_evaluator,uccsgreen_evaluator,uccsblue_evaluator,uccsbluegreen_evaluator]
+test_dataloader = [custom_test_dataloader]
+test_evaluator = [c60_evaluator]
 

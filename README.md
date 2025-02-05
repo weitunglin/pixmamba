@@ -12,6 +12,7 @@
 - [Acknowledgment](#acknowledgment)
 
 ## Updates
+- **`Feb. 5, 2025`** Updates: Testing scripts released.
 - **`Sep. 28, 2024`** Updates: Training scripts released.
 - **`Sep. 20, 2024`** News: Our paper PixMamba has been accepted by ACCV 2024.
 
@@ -86,6 +87,14 @@ export CONFIG_PATH=configs/pixmamba/final.py
 export NUM_GPUS=1
 cd mmagic
 bash tools/dist_train.sh $CONFIG_PATH $NUM_GPUS # ~5hrs training on single RTX 4090 GPU
+```
+
+### Testing
+
+```bash
+export CONFIG_PATH=configs/pixmamba/final.py
+cd mmagic
+python tools/test.py $CONFIG_PATH <pth_filepath> --input_dir <input_image_dir> --output_dir <output_image_dir>
 ```
 
 ## Citation
